@@ -1,0 +1,31 @@
+training:
+  method: grpo
+  auditor_model: "Qwen/Qwen2.5-1.5B-Instruct"
+  batch_size: 4
+  num_steps: 2000
+  eval_every: 50
+  checkpoint_every: 200
+  ema_decay: 0.995
+
+  grpo:
+    group_size: 8
+    lr: 1.0e-5
+    kl_coeff: 0.05
+    clip_range: 0.2
+    normalize_advantages: true
+
+  dpo:
+    beta: 0.1
+    lr: 5.0e-6
+    top_k: 2
+    bottom_k: 2
+
+  gflownet:
+    lr_logZ: 1.0e-3
+    lr_policy: 1.0e-5
+    reward_floor: 0.01
+
+  curriculum:
+    k_max_stages: [6, 10, 16, 24]
+    advance_threshold: 0.15
+    stall_patience: 50

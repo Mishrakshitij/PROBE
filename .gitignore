@@ -1,0 +1,13 @@
+data/
+*.db
+__pycache__/
+*.pyc
+.eggs/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+wandb/
+*.pt
+*.bin
+checkpoints/

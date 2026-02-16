@@ -1,0 +1,13 @@
+db:
+  path: "data/flights.db"
+  num_airlines: 8
+  num_airports: 35
+  num_routes: 120
+  num_restricted_routes: 6
+  num_flights: 600
+  fare_classes_per_flight: 3
+
+target:
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_tokens: 1024

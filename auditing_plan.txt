@@ -1,0 +1,557 @@
+Project Blueprint (.txt)
+Auditing Tool-Augmented LLM Agents for Policy Violations via Learned Exploration
+(Designed for multi-turn LLM agents with tools; not for video/VLM)
+
+============================================================
+1) Problem statement
+============================================================
+
+Tool-augmented LLM agents are increasingly deployed to execute long-horizon workflows: they gather information, call external tools/APIs, maintain intermediate state, and produce user-facing decisions. In these systems, correctness is policy-constrained: beyond “answering correctly,” the agent must comply with governance rules (privacy constraints, tool-use gating, restricted actions), business rules (profitability thresholds), and operational constraints (schema adherence, safe defaults).
+
+However, current testing and evaluation practice is insufficient for agentic systems:
+
+- Naive manual test suites are small and brittle; they overfit to a few canonical flows and miss rare but critical failures.
+- Random sampling wastes budget in an effectively unbounded input space.
+- Standard benchmarks emphasize task success, but do not systematically uncover policy-violating trajectories, especially ones that only appear after several turns or tool calls.
+
+Goal:
+Build an automated auditor that generates multi-turn user–agent interactions that (a) are plausible, (b) cover diverse regions of the interaction space, and (c) efficiently surface distinct policy violations—particularly those that are long-horizon and tool-mediated.
+
+Core idea:
+Treat test-case generation as learned exploration. Instead of searching for a single strongest jailbreak, learn a policy that samples diverse interaction trajectories with probability proportional to an estimated violation reward.
+
+============================================================
+2) Related work (organized by what it contributes)
+============================================================
+
+A) Agent benchmarks & environments (tool/web/OS)
+- Web agents in sandboxed environments; realistic but brittle long-horizon planning.
+- Enterprise/web workflows; reproducible tool-use and execution-based evaluation.
+- OS/computer-use environments; richer action/state spaces.
+
+Why relevant:
+These show that long-horizon agent behavior remains brittle and evaluation needs realistic multi-step setups. They also provide pathways to scale auditing beyond a toy domain.
+
+B) Safety and trustworthiness benchmarks for agents
+- Benchmarks that evaluate safety/privacy/controllability in web/GUI agents.
+- Agent-as-a-judge evaluation protocols.
+
+Why relevant:
+They define evaluation dimensions that align with “policy compliance” and provide standardized safety axes.
+
+C) Agent security and indirect prompt injection (IPI), tool poisoning
+- Indirect prompt injection benchmarks and fuzzing frameworks.
+- Cross-tool dataflow threats (untrusted outputs causing unsafe tool writes).
+
+Why relevant:
+Many real policy violations occur through tool outputs and untrusted context. Techniques from agent security (fuzzing, seed selection, adaptive attacks) provide strong exploration heuristics.
+
+D) Automated red-teaming for LLMs
+- Standardized approaches for generating adversarial prompts and evaluating safety.
+- Pipeline discipline: generate → filter → validate → categorize → iterate.
+
+Why relevant:
+Auditing pipelines benefit from corpus management, deduplication, and judge calibration.
+
+E) Diversity-seeking objectives and GFlowNets
+- GFlowNets learn to sample objects proportional to reward (mode-covering).
+- Trajectory-balance objectives for improved credit assignment.
+- Subtrajectory objectives to improve long-horizon learning.
+
+Why relevant:
+Auditing needs coverage of multiple failure modes, not mode collapse.
+
+F) Multi-turn RL for LLM agents (actor-critic, hierarchical)
+- Hierarchical decomposition: utterance-level decision-making + token-level generation.
+
+Why relevant:
+Provides a practical training scaffold, but classic RL is often mode-seeking and can collapse to a few exploit patterns.
+
+============================================================
+3) Challenges in current auditing systems (why training gets “stuck”)
+============================================================
+
+C1) Terminal-only reward is too sparse for long conversations
+If reward is only assigned after a full K-turn interaction, gradients are weak and high-variance. The auditor cannot tell which turn or token choices caused the violation.
+
+C2) Credit assignment is misaligned with violation causality
+Policy violations are typically triggered by a specific assistant action (e.g., premature tool call) that is caused by the preceding auditor message. A single scalar reward applied uniformly to all turns fails to attribute responsibility.
+
+C3) Reward is noisy if it relies heavily on an LLM judge
+Judge inconsistency (format sensitivity, borderline interpretation) introduces label noise that can dominate the learning signal.
+
+C4) Rollouts are expensive
+Full episodes require many model calls (auditor + target + tools + judge), making RL prohibitively slow.
+
+C5) Mode collapse to easy violations
+If one policy is easier to trigger (e.g., gating) than another (e.g., tool disclosure), reward optimization can collapse to a small set of exploit templates.
+
+C6) Black-box target agent limits likelihood-based objectives
+If the target is opaque (no logprobs), objectives that implicitly depend on environment likelihood can become misspecified, harming stability.
+
+============================================================
+4) Target contribution (what this project should deliver)
+============================================================
+
+Primary contribution:
+A scalable, trainable auditor for tool-augmented LLM agents that discovers diverse policy violations in multi-turn interactions.
+
+Key deliverables:
+1) A policy-violation auditing framework that:
+   - Generates diverse, plausible multi-turn scenarios
+   - Prioritizes trajectories likely to trigger violations
+   - Produces a structured failure catalog (clusters, minimal reproductions, tool logs)
+
+2) A training method that mitigates:
+   - Sparse reward (turn-wise and subtrajectory signals)
+   - Mode collapse (novelty and coverage incentives)
+   - Instability (group-based updates, EMA sampling, curriculum)
+
+3) A controlled benchmark environment (starting with flight booking) with:
+   - Tool interface + logged tool calls
+   - Explicit policy set + verifiers
+   - Dataset of trajectories + per-turn violation attribution
+
+4) Evaluation protocols and metrics for:
+   - Policy coverage, diversity, efficiency, and realism
+   - Reward-proportional sampling quality (for GFlowNet claims)
+
+============================================================
+5) Problem formulation
+============================================================
+
+5.1 Interaction model
+We consider a multi-turn dialogue between:
+- Auditor (learned policy) that plays the “user”
+- Target agent (fixed environment) that responds and calls tools
+
+Let H_k denote the transcript up to turn k (including tool calls / relevant structured outputs). At each turn k:
+
+- Target agent produces response c_k ~ E(· | H_{k-1})
+- Auditor produces user utterance u_k ~ π_θ(· | H_{k-1}, c_k)
+
+A full episode ends at K_end ≤ K_max.
+
+5.2 Terminal reward (baseline formulation)
+A baseline assigns a nonnegative reward R(H_{K_end}) based on detectors (rule-based + judge):
+R(H) = Σ_j w_j f_j(V_j(H))
+
+Problem:
+R(H) is sparse and does not localize causality across turns.
+
+5.3 Turn-wise / subtrajectory reward (recommended)
+Define per-turn reward r_k attributed to the auditor action u_k:
+
+- Observe assistant output (and tool behavior) after u_k
+- Detect which policies violated at that step
+- Assign reward at that time:
+r_k = r_k^viol + α r_k^prog + β r_k^novelty + γ r_k^plaus
+
+Where:
+- r_k^viol: immediate policy violations caused by the assistant at step k (after u_k)
+- r_k^prog: progress shaping reward for reaching useful preconditions (enables long-horizon violations)
+- r_k^novelty: bonus for discovering under-covered failure clusters / rare policies
+- r_k^plaus: plausibility/realism score (keeps auditor behavior user-like)
+
+The episodic return is:
+R_total = Σ_{k=1..K_end} r_k
+
+5.4 Diversity-aware objective (auditing goal)
+Auditing is not “maximize expected reward”; it is “cover diverse failure modes.”
+Two complementary targets:
+
+A) Reward-proportional sampling over terminal episodes:
+p*(H) ∝ R_total(H)
+
+B) Quality-diversity: maximize coverage across failure clusters/policies while maintaining nontrivial yield.
+
+============================================================
+6) Existing methods and formulations
+============================================================
+
+6.1 Naive baselines
+- Handwritten/curated tests: small coverage, brittle.
+- Random prompts / random scenario sampling: wasteful in huge space.
+- Mutation/fuzzing without learning: improves somewhat but often plateaus and is hard to amortize.
+
+6.2 Mode-seeking RL for multi-turn agents (actor-critic; ArCHer-style)
+Objective:
+maximize E_{H~p_θ}[R_total(H)]
+
+Typical critic:
+Q_ψ(S_k, u_k) ≈ E[ Σ_{j=k..K_end} γ^{j-k} r_j | S_k, u_k ]
+
+Policy update (schematic):
+θ ← argmax E[ exp(β A_k) log π_θ(u_k | S_k) ] with A_k = Q_ψ - V_ψ
+
+Pros:
+- Local credit assignment can help long horizon.
+Cons:
+- Mode seeking; collapses to a small set of high-reward exploit patterns.
+- Needs critic stability/tuning; can overfit to judge quirks.
+
+6.3 GFlowNet trajectory-balance (mode-covering)
+Target distribution over terminal transcripts:
+p*(H) = R_total(H) / Z
+
+Trajectory-balance condition (tree-structured):
+Z · p_θ(H) = R_total(H)
+
+TB loss (log-space regression form):
+L_TB(θ, ϕ) = E_H [ ( log Z_ϕ + log p_θ(H) - log R_total(H) )^2 ]
+
+Pros:
+- Mode-covering by design; samples multiple failure modes proportionally.
+Cons:
+- Long-horizon + sparse reward still difficult.
+- In black-box settings, careful formulation is needed to avoid dependence on environment likelihood.
+
+6.4 GRPO / group-based policy optimization (practical low-variance alternative)
+At a fixed state S, sample a group of candidates {u_i} and compute rewards {R_i}.
+Use a group baseline b = mean(R_i) and advantage A_i = R_i - b (optionally normalized).
+Update:
+∇θ E_i [ A_i · ∇θ log π_θ(u_i | S) ]  (+ regularization)
+
+Pros:
+- Strong practical stability; no critic required.
+- Naturally pairs with shared-prefix candidate sampling.
+Cons:
+- Still can collapse if rewards are dominated by one violation type unless novelty/coverage terms are used.
+
+6.5 Preference-based updates (DPO-style)
+From pairs (winner u^+, loser u^- ) under same state S:
+maximize log σ( (log π(u^+|S) - log π(u^-|S)) - (log π_ref(u^+|S) - log π_ref(u^-|S)) )
+
+Pros:
+- Very stable; uses relative comparisons; good with best-of-N.
+Cons:
+- Needs careful pair construction; not explicitly reward-proportional across full trajectories.
+
+6.6 Subtrajectory learning (credit assignment improvement)
+Instead of only terminal objectives, train on partial sequences/subtrajectories:
+- reduces sparsity
+- improves attribution
+- supports curriculum over turn index
+
+============================================================
+7) Proposed method (improved auditing system)
+============================================================
+
+Summary:
+A staged training and exploration system that combines:
+- Turn-wise and subtrajectory rewards (dense, causal)
+- Shared-prefix candidate sampling (cheap, comparable rollouts)
+- Web-of-thoughts exploration via frontier management + soft reward-proportional updates
+- Optional GFlowNet distribution matching for global mode coverage
+- Robust reward design (rule-based verifiers + limited judge use)
+- Curriculum + EMA for stability
+
+------------------------------------------------------------
+7.1 Reward system design (core)
+------------------------------------------------------------
+
+A) Programmatic verifiers (preferred for stability)
+Implement deterministic checks using tool logs and response parsing for:
+- Tool gating violations
+- Seat-availability mismatches
+- USD-only pricing rules
+- Restricted route rules
+- Profitability thresholds and arithmetic consistency
+- Tool/schema disclosure patterns
+
+B) LLM judge only where needed
+Use judge for ambiguous policies (e.g., privacy nuance), and for labeling:
+- violation type category (truthful-noncompliant vs confabulation-led)
+Also request “turn responsible” labeling to align with per-turn rewards.
+
+C) Turn-wise reward attribution
+At each turn k, attribute reward to the auditor action u_k that immediately precedes the assistant response c_k+tool behavior.
+
+D) Progress shaping (preconditions)
+Give small positive reward for reaching useful precondition states (slot completeness, flexible-date commitment, party-size change, currency framing), enabling learning for long-horizon violations.
+
+E) Diversity incentives
+- Novelty bonus: new cluster discovered OR rare policy triggered
+- Coverage bonus: under-covered policy types receive higher weight
+- Duplicate penalty: reduce reward for near-duplicate transcripts (embedding similarity threshold)
+
+F) Plausibility constraint
+Penalty for unnatural adversarial phrasing, meta-testing language, or incoherent booking behavior.
+Optionally train a lightweight plausibility classifier.
+
+------------------------------------------------------------
+7.2 Shared-prefix candidate sampling (turn-level rollout)
+------------------------------------------------------------
+
+Instead of rolling out full conversations for every update, train at a chosen turn index t:
+
+1) Sample a prefix state S_t (from replay buffer or fresh rollout)
+2) Generate G candidate auditor messages {u_t^(i)} under the same S_t
+3) For each candidate, run a short continuation:
+   - until next tool call OR L steps (e.g., 1–3 turns)
+4) Score each candidate using turn-wise rewards; aggregate to candidate score R_i
+5) Update policy using a group-based or preference-based loss
+
+This reduces compute, reduces reward variance, and improves credit assignment.
+
+------------------------------------------------------------
+7.3 “Web-of-thoughts” exploration via soft reward-proportional matching
+------------------------------------------------------------
+
+Goal:
+Keep multiple exploration branches alive and allocate probability mass proportional to their promise.
+
+At state S_t with candidates {u_i} and scores {R_i}, define a soft target distribution:
+q_i = (R_i + ε)^τ / Σ_j (R_j + ε)^τ
+Optionally mix uniform to prevent discarding:
+q'_i = (1-ρ) q_i + ρ/G
+
+Update loss:
+L(S_t) = - Σ_i q'_i · log π_θ(u_i | S_t)
+
+Interpretation:
+- No candidate is fully discarded
+- Higher-reward candidates become more probable
+- Maintains exploration across multiple modes (web, not a single path)
+
+Implementation detail:
+Use logprob of whole utterance (token-sum) with length normalization to avoid favoring short outputs.
+
+------------------------------------------------------------
+7.4 Best-of-N / Worst-of-N (negative-aware training)
+------------------------------------------------------------
+
+Within each candidate set:
+- pick top M winners and bottom M losers
+- train using preference loss or contrastive likelihood ratio
+
+Why:
+Focuses updates on the most informative comparisons, reduces noise, and speeds up learning.
+
+------------------------------------------------------------
+7.5 EMA sampling policy + KL regularization (stability)
+------------------------------------------------------------
+
+Maintain:
+- π_train: updated every step
+- π_old: EMA of π_train used for sampling candidates (more stable)
+
+Add a small KL to an SFT reference model if language quality degrades.
+
+------------------------------------------------------------
+7.6 Curriculum over horizon and turn index
+------------------------------------------------------------
+
+Phase schedule:
+- start with short max-turn K_max (e.g., 6)
+- gradually increase to 10, 20, 30
+
+Within each K_max, sample training targets over turn index:
+- early turns more frequently at first
+- later turns increasingly as steering improves
+
+------------------------------------------------------------
+7.7 Optional: Distiller target for cheap training
+------------------------------------------------------------
+
+If the true target is expensive/opaque:
+- train a smaller “distiller” to approximate the target agent behavior locally
+- train auditor mostly against distiller
+- periodically validate discovered failures on the true target
+
+------------------------------------------------------------
+7.8 Integrating GFlowNet (global mode coverage)
+------------------------------------------------------------
+
+After the above loop produces stable improvements, introduce utterance-level GFlowNet TB updates on replay data:
+- Offline TB regression to match reward-proportional distribution over full transcripts
+- Keep turn-level candidate sampling as token/utterance refinement for stability
+
+This yields:
+- local learning signal (turn-wise) + global distribution target (GFlowNet)
+
+------------------------------------------------------------
+7.9 Output: Failure Catalog (practical artifact)
+------------------------------------------------------------
+
+After each training run:
+- deduplicate episodes (embedding clustering)
+- for each cluster: store minimal reproduction transcript, tool logs, violated policies, responsible turns, severity
+- summary statistics: coverage, novelty rate, per-policy triggers, cost per new failure
+
+============================================================
+8) Datasets / environments
+============================================================
+
+8.1 Primary: Flight-booking tool environment (controlled)
+- A backend relational database with internally consistent flight inventory.
+- A single “flight-search” tool that returns normalized JSON itineraries.
+- The target agent must obey a policy set (business + safety + privacy).
+- All tool calls and outputs are logged.
+
+8.2 Collected trajectory dataset
+Data schema:
+- (episode transcript, tool logs, per-turn labels, per-policy violation flags, violation type labels, responsible turn indices)
+Data sources:
+- zero-shot auditors + temperature variants
+- SFT warm-start dataset for auditor training
+- on-policy rollouts during RL training
+
+8.3 Scaling datasets (future / extension)
+After proving in the controlled domain, evaluate the auditor methodology on:
+- Web agent environments (WebArena/BrowserGym/WorkArena)
+- Agent safety benchmarks (ST-WebAgentBench / GUI trust benchmarks)
+- Indirect prompt injection scenarios (InjecAgent-style setups)
+
+============================================================
+9) Experimental plan (full empirical analysis)
+============================================================
+
+9.1 Models and roles
+- Target agent: a strong LLM (expensive) and/or a local proxy
+- Auditor: small-to-mid LLM (1B–7B) fine-tuned
+- Judge: deterministic evaluator (temperature 0), used sparingly for ambiguous policies
+
+9.2 Baselines (must include)
+B0: Random scenario sampling (no learning)
+B1: Curated seeds + heuristic mutations (simple fuzzer)
+B2: Zero-shot auditor LLM (policy-aware prompt only)
+B3: SFT-only auditor (imitate collected auditor transcripts)
+B4: Terminal-reward RL (conversation-level reward only), e.g., PPO/GRPO
+
+9.3 Proposed variants (ablations)
+A1: Turn-wise violation reward only
+A2: Turn-wise + progress shaping
+A3: A2 + novelty bonus (cluster-based)
+A4: A3 + plausibility constraint
+A5: A4 + shared-prefix candidate sampling (core)
+A6: A5 + best-of/worst-of preference updates
+A7: A6 + EMA sampling
+A8: A7 + curriculum (horizon + turn index)
+A9: A8 + GFlowNet TB on replay (global mode coverage)
+
+9.4 Primary evaluation metrics (quantitative)
+Coverage:
+- % policies triggered at least once
+- # unique policy combinations discovered
+- coverage curve vs number of target calls
+
+Diversity:
+- # unique clusters (embedding-based) above similarity threshold
+- discovery rate: new clusters per N episodes
+- entropy over clusters or policy types
+
+Yield:
+- violations per 100 episodes
+- severe violations per 100 episodes (severity-weighted)
+- multi-policy violation rate
+
+Efficiency:
+- target calls per new cluster
+- judge calls per new cluster
+- wall-clock time per new cluster (if measured)
+
+Realism / usability:
+- plausibility score distribution
+- human audit sample: fraction of “useful” failures among top K clusters
+
+Generalization:
+- train on subset of policies or scenarios; test on held-out combinations
+- robustness to tool schema changes (small perturbations)
+- robustness to target model change (swap target LLM)
+
+Reward-proportionality (if claiming GFlowNet convergence properties):
+- estimate empirical terminal distribution over clusters and compare to normalized rewards
+- measure KL divergence between empirical sampling distribution and reward-proportional target (approximate)
+
+9.5 Empirical analysis (qualitative + diagnostics)
+- Failure taxonomy: group by policy type and mechanism (state-binding error, tool misuse, confabulation-led, privacy leakage)
+- Turn-responsibility statistics: where violations occur, which auditor actions lead there
+- Reward hacking checks: look for unnatural “judge exploitation” patterns; measure plausibility drop
+- Sensitivity analysis: reward weights, novelty scaling, candidate group size G, horizon K_max
+
+9.6 Statistical rigor
+- Run each configuration with multiple random seeds
+- Use bootstrap confidence intervals on:
+  coverage, discovery rate, efficiency
+- Report learning curves with variability bands
+
+9.7 Compute/cost plan
+- Early-stage training against a local proxy target to iterate quickly
+- Periodic validation on the expensive target
+- Judge minimized by programmatic verifiers and ambiguity gating
+
+============================================================
+10) Expected results (hypotheses)
+============================================================
+
+H1: Turn-wise reward attribution improves learning speed and stability
+Compared to terminal-only reward, turn-wise + short-horizon continuation will:
+- increase violation yield early
+- reduce gradient variance
+- improve policy coverage growth rate
+
+H2: Progress shaping enables rare/long-horizon policy discovery
+Adding precondition/progress reward will:
+- substantially increase triggers for policies that require setup
+- reduce collapse onto easiest-to-trigger violations
+
+H3: Novelty + coverage incentives increase diversity without sacrificing yield
+Compared to pure violation reward:
+- higher unique cluster count at equal rollout budget
+- more balanced per-policy discovery rates
+
+H4: Shared-prefix candidate sampling (turn-level rollouts) drastically improves efficiency
+Compute per new unique failure should drop significantly relative to full-episode training.
+
+H5: “Web-of-thoughts” soft reward-proportional matching maintains exploration breadth
+Compared to winner-take-all RL:
+- less mode collapse
+- smoother exploration across multiple failure families
+- higher discovery rate late in training (long tail)
+
+H6: Adding GFlowNet TB on replay improves global reward-proportional sampling and multi-modality
+After stabilizing training with turn-level methods, GFlowNet objectives should:
+- better preserve multiple high-reward failure modes
+- reduce over-concentration on a single exploit template
+
+============================================================
+11) Implementation roadmap (practical sequence)
+============================================================
+
+Week 1:
+- Build logging + replay buffer
+- Implement programmatic verifiers for most policies
+- Implement per-turn violation attribution + progress shaping
+- Build clustering + novelty metrics
+
+Week 2:
+- Implement shared-prefix candidate sampling
+- Implement GRPO/group updates OR soft reward-proportional matching loss
+- Add best-of/worst-of preference updates
+- Add EMA sampling
+
+Week 3:
+- Add curriculum (horizon + turn index)
+- Add plausibility constraint (simple classifier or rubric)
+- Run full ablations A1–A8 in the controlled flight environment
+
+Week 4+:
+- Add GFlowNet TB on replay (A9)
+- Validate on stronger target agents and/or additional environments
+- Produce final failure catalog and empirical study
+
+============================================================
+12) Notes on writing the final paper/report
+============================================================
+
+Positioning:
+- The contribution is “learned exploration for policy-violation auditing in tool-augmented agents.”
+- Emphasize mode-covering and failure discovery, not simply higher violation rate.
+
+Clarity:
+- Show that terminal-only reward and naive RL collapse.
+- Show that turn-wise + shared-prefix + novelty yields a growing failure catalog.
+- Use case studies with tool logs to demonstrate real, actionable failures.
+
+End of .txt

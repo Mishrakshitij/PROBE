@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "aapo"
+version = "0.1.0"
+description = "Auditing Agents for Policy-violation Observation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.36",
+    "peft>=0.7",
+    "trl>=0.7",
+    "sentence-transformers>=2.2",
+    "hdbscan>=0.8",
+    "pydantic>=2.0",
+    "omegaconf>=2.3",
+    "litellm>=1.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "matplotlib>=3.7",
+    "wandb>=0.15",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,7 +1,14 @@
-"""Auditor policy: LLM wrapper for generating user messages and computing log-probs."""
+"""Auditor policy: LLM wrapper for generating user messages and computing log-probs.
+
+Supports:
+  - Full-precision or QLoRA 4-bit loading
+  - LoRA checkpoint save/load
+  - Configurable device placement
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -22,31 +29,90 @@ class AuditorPolicy:
       - generate(): single message
       - generate_candidates(): G messages for shared-prefix sampling
       - log_prob(): log-probability of a text given history
+      - QLoRA 4-bit quantization via bitsandbytes + peft
+      - LoRA checkpoint save/load
     """
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
+        model_name: str = "Qwen/Qwen3-4B-Instruct",
         device: str | None = None,
         max_new_tokens: int = 256,
         temperature: float = 0.8,
         system_prompt: str = AUDITOR_SYSTEM,
+        quantize_4bit: bool = False,
+        lora_config: dict[str, Any] | None = None,
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
         self.system_prompt = system_prompt
+        self._has_lora = False
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
-            trust_remote_code=True,
-        ).to(self.device)
-        self.model.eval()
-
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Load model — optionally with 4-bit quantization
+        if quantize_4bit:
+            from transformers import BitsAndBytesConfig
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                quantization_config=bnb_config,
+                device_map={"": self.device},
+                trust_remote_code=True,
+            )
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.bfloat16 if self.device != "cpu" else torch.float32,
+                trust_remote_code=True,
+            ).to(self.device)
+
+        # Apply LoRA if config provided
+        if lora_config:
+            self._apply_lora(lora_config)
+
+        self.model.eval()
+
+    def _apply_lora(self, lora_config: dict[str, Any]):
+        """Apply LoRA adapter using peft."""
+        from peft import LoraConfig, get_peft_model, TaskType
+
+        config = LoraConfig(
+            r=lora_config.get("rank", 64),
+            lora_alpha=lora_config.get("alpha", 128),
+            target_modules=lora_config.get("target_modules", ["q_proj", "v_proj", "k_proj", "o_proj"]),
+            lora_dropout=lora_config.get("dropout", 0.05),
+            task_type=TaskType.CAUSAL_LM,
+            bias="none",
+        )
+        self.model = get_peft_model(self.model, config)
+        self.model.print_trainable_parameters()
+        self._has_lora = True
+
+    def save_lora(self, path: str | Path):
+        """Save only the LoRA adapter weights."""
+        if not self._has_lora:
+            raise RuntimeError("No LoRA adapter to save")
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        self.model.save_pretrained(str(path))
+        self.tokenizer.save_pretrained(str(path))
+
+    def load_lora(self, path: str | Path):
+        """Load LoRA adapter weights from a checkpoint."""
+        from peft import PeftModel
+        path = Path(path)
+        self.model = PeftModel.from_pretrained(self.model, str(path))
+        self._has_lora = True
+        self.model.eval()
 
     def generate(self, history: list[Turn]) -> str:
         """Generate a single user message."""
@@ -83,7 +149,6 @@ class AuditorPolicy:
         messages.append({"role": "user", "content": text})
         full = self.tokenizer.apply_chat_template(messages, tokenize=False)
 
-        # Tokenize full and prefix separately
         prefix_messages = messages[:-1]
         prefix_str = self.tokenizer.apply_chat_template(
             prefix_messages, tokenize=False, add_generation_prompt=True)
@@ -94,12 +159,11 @@ class AuditorPolicy:
 
         with torch.no_grad():
             outputs = self.model(full_ids)
-            logits = outputs.logits[0, prefix_len - 1:-1]  # shifted by 1
+            logits = outputs.logits[0, prefix_len - 1:-1]
             target_ids = full_ids[0, prefix_len:]
             log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
             token_lps = log_probs.gather(1, target_ids.unsqueeze(1)).squeeze(1)
 
-        # Length-normalized log-prob
         total = token_lps.sum().item()
         n_tokens = max(token_lps.shape[0], 1)
         return total / n_tokens

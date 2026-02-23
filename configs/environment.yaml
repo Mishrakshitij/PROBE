@@ -8,6 +8,6 @@ db:
   fare_classes_per_flight: 3
 
 target:
-  model: "gpt-4o-mini"
-  temperature: 0.3
-  max_tokens: 1024
+  # Model config now lives in models.yaml (target section)
+  # This section only holds non-model target agent settings
+  max_tool_rounds: 5

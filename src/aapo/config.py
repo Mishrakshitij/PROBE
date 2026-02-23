@@ -23,9 +23,8 @@ class DBConfig:
 
 @dataclass
 class TargetAgentConfig:
-    model: str = "gpt-4o-mini"
-    temperature: float = 0.3
-    max_tokens: int = 1024
+    # Model config now lives in models.yaml; these are non-model settings
+    max_tool_rounds: int = 5
     system_prompt_path: str = "configs/skyassist_prompt.txt"
 
 

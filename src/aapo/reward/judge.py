@@ -2,13 +2,13 @@
 
 Used sparingly — gated to only trigger when programmatic verifier
 returns low-confidence or when policy is marked non-deterministic.
+
+Accepts any InferenceBackend (VLLMClient, APIClient, etc.).
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-import litellm
+from typing import Any, Protocol
 
 from ..types import Episode, Severity, Turn, ViolationLabel
 
@@ -36,13 +36,18 @@ Also rate your confidence: HIGH / MEDIUM / LOW
 Format: <verdict> | confidence: <level>"""
 
 
-class LLMJudge:
-    """Sparse LLM judge — only called for hybrid policies or low-confidence cases."""
+class _InferenceBackend(Protocol):
+    def generate(self, messages: list[dict], **kwargs) -> str: ...
 
-    def __init__(self, model: str = "gpt-4o-mini", temperature: float = 0.0, max_tokens: int = 256):
-        self.model = model
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+
+class LLMJudge:
+    """Sparse LLM judge — only called for hybrid policies or low-confidence cases.
+
+    Takes an InferenceBackend instead of calling litellm directly.
+    """
+
+    def __init__(self, client: _InferenceBackend | None = None):
+        self.client = client
         self._call_count = 0
 
     @property
@@ -59,8 +64,9 @@ class LLMJudge:
         """Evaluate a single turn for a single policy."""
         if policy_id not in HYBRID_POLICIES:
             return None
+        if self.client is None:
+            return None
 
-        # Build context: last 3 turns before the target
         context_turns = [t for t in episode.turns if t.turn_index < turn_index][-3:]
         context = "\n".join(f"[{t.role.value}] {t.content}" for t in context_turns)
 
@@ -78,13 +84,10 @@ class LLMJudge:
 
         try:
             self._call_count += 1
-            resp = litellm.completion(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
+            text = self.client.generate(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0, max_tokens=256,
             )
-            text = resp.choices[0].message.content.strip()
             return self._parse(text, policy_id, turn_index)
         except Exception:
             return None

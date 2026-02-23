@@ -1,15 +1,25 @@
-"""SkyAssist target agent: LLM wrapper + tool dispatch."""
+"""SkyAssist target agent: LLM wrapper + tool dispatch.
+
+Uses the InferenceBackend protocol so the underlying model can be
+vLLM local, external API, or any other backend — swapped via config.
+"""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
-
-import litellm
+from typing import Any, Protocol
 
 from ..types import Role, ToolCall, Turn
 from .tools import ToolRegistry
+
+
+class _InferenceBackend(Protocol):
+    """Minimal interface (avoids circular import with inference/)."""
+    def generate(self, messages: list[dict], **kwargs) -> str: ...
+    def generate_with_tools(
+        self, messages: list[dict], tools: list[dict], **kwargs
+    ) -> tuple[str, list[ToolCall]]: ...
+
 
 # Deliberately has gaps — see plan Section C
 SKYASSIST_SYSTEM_PROMPT = """You are SkyAssist, a helpful flight booking assistant.
@@ -42,66 +52,68 @@ Important:
 
 
 class TargetAgent:
-    """LLM-based target agent with tool calling."""
+    """LLM-based target agent with tool calling.
+
+    Accepts any InferenceBackend (VLLMClient, APIClient, etc.).
+    """
 
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        model: str = "gpt-4o-mini",
-        temperature: float = 0.3,
-        max_tokens: int = 1024,
+        client: _InferenceBackend | None = None,
         system_prompt: str | None = None,
+        max_tool_rounds: int = 5,
     ):
         self.tools = tool_registry
-        self.model = model
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.client = client
         self.system_prompt = system_prompt or SKYASSIST_SYSTEM_PROMPT
+        self.max_tool_rounds = max_tool_rounds
 
     def generate(self, history: list[Turn]) -> Turn:
         """Generate a response (possibly with tool calls) given conversation history."""
+        if self.client is None:
+            raise RuntimeError("TargetAgent requires an InferenceBackend client")
+
         messages = self._build_messages(history)
         tool_calls_made: list[ToolCall] = []
+        schemas = self.tools.get_schemas()
 
-        # Loop to handle multi-step tool use
-        for _ in range(5):  # max 5 tool-call rounds per turn
-            response = litellm.completion(
-                model=self.model,
-                messages=messages,
-                tools=self.tools.get_schemas(),
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-            choice = response.choices[0]
-            msg = choice.message
+        for _ in range(self.max_tool_rounds):
+            text, new_calls = self.client.generate_with_tools(messages, schemas)
 
-            # If no tool calls, return the text response
-            if not msg.tool_calls:
-                content = msg.content or ""
-                turn_idx = len(history)
+            if not new_calls:
                 return Turn(
                     role=Role.ASSISTANT,
-                    content=content,
-                    turn_index=turn_idx,
+                    content=text,
+                    turn_index=len(history),
                     tool_calls=tuple(tool_calls_made),
                 )
 
-            # Execute each tool call
-            messages.append(msg.model_dump())
-            for tc in msg.tool_calls:
-                fn_name = tc.function.name
-                fn_args = json.loads(tc.function.arguments)
-                result = self.tools.execute(fn_name, fn_args)
+            # Execute tool calls, build follow-up messages
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": text or None}
+            oai_tool_calls = []
+            for i, tc in enumerate(new_calls):
+                result = self.tools.execute(tc.tool_name, tc.arguments)
                 tool_calls_made.append(ToolCall(
-                    tool_name=fn_name,
-                    arguments=fn_args,
+                    tool_name=tc.tool_name,
+                    arguments=tc.arguments,
                     result=result,
                 ))
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": json.dumps(result),
+                call_id = f"call_{len(tool_calls_made)}_{i}"
+                oai_tool_calls.append({
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.tool_name,
+                        "arguments": json.dumps(tc.arguments),
+                    },
                 })
+                messages.append({"role": "tool", "tool_call_id": call_id,
+                                 "content": json.dumps(result)})
+
+            assistant_msg["tool_calls"] = oai_tool_calls
+            # Insert the assistant message before the tool results
+            messages.insert(len(messages) - len(new_calls), assistant_msg)
 
         # Fallback if max tool rounds exceeded
         return Turn(
@@ -112,10 +124,7 @@ class TargetAgent:
         )
 
     def _build_messages(self, history: list[Turn]) -> list[dict[str, Any]]:
-        messages = [{"role": "system", "content": self.system_prompt}]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
         for turn in history:
-            messages.append({
-                "role": turn.role.value,
-                "content": turn.content,
-            })
+            messages.append({"role": turn.role.value, "content": turn.content})
         return messages

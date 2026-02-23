@@ -1,0 +1,44 @@
+models:
+  target:
+    name: "Qwen/Qwen3-30B-A3B-Instruct"
+    backend: "vllm"
+    gpu: 7
+    quantization: "awq"
+    gpu_memory_utilization: 0.45
+    port: 8001
+    max_model_len: 4096
+    temperature: 0.3
+    max_tokens: 1024
+
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct"
+    backend: "vllm"
+    gpu: 7
+    port: 8001  # shared server with target
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct"
+    backend: "transformers"
+    gpu: 3
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05
+
+  judge_eval:
+    name: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    backend: "vllm"
+    gpu: [3, 4]
+    quantization: "awq"
+    port: 8002
+    gpu_memory_utilization: 0.90
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256

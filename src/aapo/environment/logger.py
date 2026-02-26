@@ -55,6 +55,29 @@ class InteractionLogger:
         with open(self._violation_file, "a") as f:
             f.write(json.dumps(record) + "\n")
 
+    def update_episode(self, episode: Episode):
+        """Rewrite an episode in the log with updated violations/rewards."""
+        if not self._episode_file.exists():
+            return
+        lines = self._episode_file.read_text().splitlines()
+        with open(self._episode_file, "w") as f:
+            for line in lines:
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                if rec["episode_id"] == episode.episode_id:
+                    rec["violations"] = [_violation_to_dict(v) for v in episode.violations]
+                    rec["num_violations"] = len(episode.violations)
+                    rec["violated_policies"] = list({v.policy_id for v in episode.violations})
+                    rec["rewards"] = [
+                        {"violation": r.violation, "progress": r.progress,
+                         "novelty": r.novelty, "plausibility": r.plausibility,
+                         "total": r.total}
+                        for r in episode.rewards
+                    ]
+                    rec["total_reward"] = episode.total_reward
+                f.write(json.dumps(rec) + "\n")
+
     def load_episodes(self) -> list[dict[str, Any]]:
         if not self._episode_file.exists():
             return []

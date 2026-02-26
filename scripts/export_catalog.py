@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from aapo.replay.embedder import TrajectoryEmbedder
 from aapo.replay.cluster import ClusterManager
 from aapo.replay.catalog import FailureCatalog
-from scripts.evaluate import load_episodes_from_logs
+sys.path.insert(0, str(Path(__file__).parent))
+from evaluate import load_episodes_from_logs
 
 
 def main():

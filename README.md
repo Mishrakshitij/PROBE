@@ -45,15 +45,15 @@ Swapping models = editing `configs/models.yaml`. No code changes needed.
 
 ```
 TRAINING:
-  GPU 7 → vLLM: Qwen3-30B-A3B-Instruct 4-bit (~17GB)
+  GPU 7 → vLLM: Qwen3-30B-A3B-Instruct-2507 bitsandbytes 4-bit (~17GB)
            serves BOTH target agent AND judge (same model, different prompts)
            prefix caching ON for shared-prefix candidate sampling
-  GPU 3 → Auditor: Qwen3-4B-Instruct QLoRA 4-bit
+  GPU 5 → Auditor: Qwen3-4B-Instruct-2507 QLoRA 4-bit
            ~3GB weights + ~1GB LoRA + ~1GB optim + ~5GB activations
 
 EVALUATION:
-  GPU 7 → vLLM: target (Qwen3-30B-A3B, same as training)
-  GPU 3+4 → vLLM: stronger judge (Qwen3-80B-A3B, tensor parallel)
+  GPU 7 → vLLM: target (Qwen3-30B-A3B-Instruct-2507, same as training)
+  GPU 3+4 → vLLM: stronger judge (Qwen3-Next-80B-A3B-Instruct, tensor parallel)
 ```
 
 ### Model Config (`configs/models.yaml`)
@@ -61,22 +61,22 @@ EVALUATION:
 ```yaml
 models:
   target:
-    name: "Qwen/Qwen3-30B-A3B-Instruct"
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
     backend: "vllm"
     gpu: 7
-    quantization: "awq"
+    quantization: "bitsandbytes"
     port: 8001
 
   judge:
-    name: "Qwen/Qwen3-30B-A3B-Instruct"
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
     backend: "vllm"
     gpu: 7
     port: 8001  # shared server
 
   auditor:
-    name: "Qwen/Qwen3-4B-Instruct"
+    name: "Qwen/Qwen3-4B-Instruct-2507"
     backend: "transformers"
-    gpu: 3
+    gpu: 5
     quantization: "bitsandbytes-4bit"
     lora:
       rank: 64
@@ -261,3 +261,26 @@ aapo/
 - `pyproject.toml` — added openai, bitsandbytes; moved litellm to optional `[api]`, vllm to `[vllm]`
 - `scripts/train.py` — loads backends from models.yaml, QLoRA auditor, LoRA checkpointing
 - `scripts/run_baseline.py` — uses InferenceBackend instead of litellm
+
+### Section F: Verification (2026-02-25)
+
+**Bug fixes during smoke testing:**
+- `src/aapo/inference/server.py` — added `--enable-auto-tool-choice --tool-call-parser hermes` for tool calling; bumped default `gpu_memory_utilization` to 0.55
+- `src/aapo/inference/vllm_client.py` — added max_tokens halving retry on context overflow
+- `src/aapo/auditor/sampler.py` — added missing `generate()` method (delegates to `sampling_policy`)
+- `src/aapo/auditor/ema.py` — added `is_floating_point()` guard to skip quantized uint8 params in EMA update
+- `src/aapo/environment/logger.py` — added `update_episode()` to persist violations/rewards after scoring
+- `src/aapo/replay/cluster.py` — auto-lower HDBSCAN `min_cluster_size` for small datasets
+- `src/aapo/replay/catalog.py` — include unclustered episodes with violations as singleton clusters
+- `scripts/run_baseline.py` — call `logger.update_episode()` after scoring to persist violations
+- `scripts/export_catalog.py` — fixed import path for `load_episodes_from_logs`
+- `configs/models.yaml` — `max_model_len: 8192`, `max_tokens: 512`, auditor on GPU 5
+
+**Smoke test results:**
+- B0 baseline: 0 violations (expected — random dates don't match DB)
+- B2 baseline (20 ep): 124 violations, 9/20 policies, 45% coverage
+- Training smoke (5 GRPO steps): completed, LoRA saved
+- Failure catalog: 19 clusters exported
+
+**New files:**
+- `scripts/smoke_test.py` — 5-turn scripted integration test against live vLLM target

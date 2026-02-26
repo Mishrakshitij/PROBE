@@ -28,12 +28,22 @@ class FailureCatalog:
 
     def build(self, episodes: list[Episode]) -> list[dict[str, Any]]:
         """Build catalog entries for all clusters."""
-        # Group episodes by cluster
+        # Group episodes by cluster; unclustered episodes with violations
+        # get their own singleton cluster IDs (starting after max real cluster)
         cluster_episodes: dict[int, list[Episode]] = {}
+        noise_eps: list[Episode] = []
         for ep in episodes:
             cid = self.cm.get_cluster_id(ep.episode_id)
             if cid >= 0:
                 cluster_episodes.setdefault(cid, []).append(ep)
+            elif ep.violations:
+                noise_eps.append(ep)
+
+        # Assign noise episodes with violations as singleton clusters
+        next_id = max(cluster_episodes.keys(), default=-1) + 1
+        for ep in noise_eps:
+            cluster_episodes[next_id] = [ep]
+            next_id += 1
 
         catalog = []
         for cid, eps in sorted(cluster_episodes.items()):

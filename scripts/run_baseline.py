@@ -135,6 +135,8 @@ def main():
         ep.rewards = breakdowns
         ep.violations = [v for vlist in attributor.attribute(ep).values() for v in vlist]
 
+        logger.update_episode(ep)
+
         all_violations += len(ep.violations)
         all_policies.update(v.policy_id for v in ep.violations)
 

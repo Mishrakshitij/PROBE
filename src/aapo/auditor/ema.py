@@ -26,9 +26,10 @@ class EMAPolicy:
 
     @torch.no_grad()
     def update(self, source_policy: AuditorPolicy):
-        """Update EMA weights from the training policy."""
+        """Update EMA weights from the training policy (skips quantized params)."""
         for ema_param, src_param in zip(
             self.policy.model.parameters(),
             source_policy.model.parameters(),
         ):
-            ema_param.data.mul_(self.decay).add_(src_param.data, alpha=1.0 - self.decay)
+            if ema_param.data.is_floating_point():
+                ema_param.data.mul_(self.decay).add_(src_param.data, alpha=1.0 - self.decay)

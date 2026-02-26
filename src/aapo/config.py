@@ -81,7 +81,7 @@ class GFlowNetConfig:
 @dataclass
 class TrainingConfig:
     method: str = "grpo"  # grpo | dpo | gflownet
-    auditor_model: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    auditor_model: str = "Qwen/Qwen3-4B-Instruct-2507"
     batch_size: int = 4
     num_steps: int = 2000
     eval_every: int = 50

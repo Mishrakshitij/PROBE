@@ -93,6 +93,9 @@ class VLLMClient:
                         ))
                 return text, parsed_calls
             except Exception as e:
+                if "max_tokens" in str(e) and max_tok > 128:
+                    max_tok = max_tok // 2  # halve and retry
+                    continue
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)

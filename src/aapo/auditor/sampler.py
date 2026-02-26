@@ -31,6 +31,10 @@ class CandidateSampler:
             return self.ema_policy.policy
         return self.train_policy
 
+    def generate(self, history: list[Turn]) -> str:
+        """Generate a single message (satisfies AuditorProtocol)."""
+        return self.sampling_policy.generate(history)
+
     def generate_candidates(self, history: list[Turn], n: int) -> list[str]:
         """Generate n candidates from the sampling policy."""
         return self.sampling_policy.generate_candidates(history, n)

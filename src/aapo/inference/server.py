@@ -14,7 +14,7 @@ def launch_vllm(
     gpu: int | list[int],
     port: int = 8001,
     quantization: str | None = None,
-    gpu_memory_utilization: float = 0.45,
+    gpu_memory_utilization: float = 0.55,
     max_model_len: int = 4096,
     enable_prefix_caching: bool = True,
     extra_args: list[str] | None = None,
@@ -49,6 +49,8 @@ def launch_vllm(
         "--gpu-memory-utilization", str(gpu_memory_utilization),
         "--max-model-len", str(max_model_len),
         "--trust-remote-code",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", "hermes",
     ]
 
     if quantization:

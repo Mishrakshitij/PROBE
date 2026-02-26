@@ -58,9 +58,13 @@ class ClusterManager:
 
         import hdbscan
         X = np.array(self._embeddings)
+        # Auto-lower for small datasets to avoid all-noise
+        n = len(X)
+        mcs = min(self.min_cluster_size, max(2, n // 5))
+        ms = min(self.min_samples, mcs)
         clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=self.min_cluster_size,
-            min_samples=self.min_samples,
+            min_cluster_size=mcs,
+            min_samples=ms,
             metric="euclidean",
         )
         self._labels = clusterer.fit_predict(X)

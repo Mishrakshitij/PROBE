@@ -43,6 +43,10 @@ class CandidateSampler:
         """Log-prob under the TRAINING policy (for gradient computation)."""
         return self.train_policy.log_prob(history, text)
 
+    def log_prob_batch(self, history: list[Turn], texts: list[str]) -> list[float]:
+        """Batched log-prob under the TRAINING policy."""
+        return self.train_policy.log_prob_batch(history, texts)
+
     def log_prob_sampling(self, history: list[Turn], text: str) -> float:
         """Log-prob under the SAMPLING policy (for importance weighting)."""
         return self.sampling_policy.log_prob(history, text)

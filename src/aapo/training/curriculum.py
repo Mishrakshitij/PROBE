@@ -1,7 +1,7 @@
 """Curriculum scheduler: horizon growth + turn-index sampling.
 
 Phase schedule:
-  - Start with short K_max (6), grow to 10, 16, 24
+  - Start with short K_max (4), grow to 8, 12, 14
   - Advance when violation yield > threshold for current K
   - Within each K_max, sample training turn indices weighted toward early turns initially
 """
@@ -23,7 +23,7 @@ class CurriculumScheduler:
         stall_patience: int = 50,
         turn_bias_decay: float = 0.98,
     ):
-        self.stages = k_max_stages or [6, 10, 16, 24]
+        self.stages = k_max_stages or [4, 8, 12, 14]
         self.advance_threshold = advance_threshold
         self.stall_patience = stall_patience
         self.turn_bias_decay = turn_bias_decay

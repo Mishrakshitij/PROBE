@@ -11,3 +11,6 @@ wandb/
 *.pt
 *.bin
 checkpoints/
+slurm/logs/
+figures/
+=*

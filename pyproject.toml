@@ -20,11 +20,15 @@ dependencies = [
     "openai>=1.0",
     "numpy>=1.24",
     "bitsandbytes>=0.43",
+    "liger-kernel>=0.5",
 ]
 
 [project.optional-dependencies]
 vllm = [
     "vllm>=0.4",
+]
+perf = [
+    "flash-attn>=2.8",
 ]
 api = [
     "litellm>=1.0",
@@ -32,6 +36,7 @@ api = [
 dev = [
     "pytest>=7.0",
     "matplotlib>=3.7",
+    "scienceplots>=2.1",
     "wandb>=0.15",
 ]
 

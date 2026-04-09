@@ -145,6 +145,11 @@ class CompositeReward:
                 total=total,
             ))
 
+        # Populate episode.violations so metrics/curriculum can see them
+        episode.violations = [
+            v for vlist in violations_by_turn.values() for v in vlist
+        ]
+
         # Update novelty scorer state
         self.novelty.update(all_triggered, cluster_id)
         self._step += 1

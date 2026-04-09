@@ -59,6 +59,9 @@ class VLLMClient:
                 )
                 return resp.choices[0].message.content or ""
             except Exception as e:
+                err_msg = str(e).lower()
+                if "context length" in err_msg or "input_tokens" in err_msg:
+                    return ""  # context overflow — signal caller to stop
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)
@@ -93,6 +96,9 @@ class VLLMClient:
                         ))
                 return text, parsed_calls
             except Exception as e:
+                err_msg = str(e).lower()
+                if "context length" in err_msg or "input_tokens" in err_msg:
+                    return "", []  # context overflow — signal caller to stop
                 if "max_tokens" in str(e) and max_tok > 128:
                     max_tok = max_tok // 2  # halve and retry
                     continue

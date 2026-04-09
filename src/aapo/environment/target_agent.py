@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol
 
+from ..context_window import estimate_message_tokens, windowed_messages
 from ..types import Role, ToolCall, Turn
 from .tools import ToolRegistry
 
@@ -63,11 +64,17 @@ class TargetAgent:
         client: _InferenceBackend | None = None,
         system_prompt: str | None = None,
         max_tool_rounds: int = 5,
+        max_context_tokens: int = 0,
+        anchor_turns: int = 2,
+        reserve_tokens: int = 512,
     ):
         self.tools = tool_registry
         self.client = client
         self.system_prompt = system_prompt or SKYASSIST_SYSTEM_PROMPT
         self.max_tool_rounds = max_tool_rounds
+        self.max_context_tokens = max_context_tokens
+        self.anchor_turns = anchor_turns
+        self.reserve_tokens = reserve_tokens
 
     def generate(self, history: list[Turn]) -> Turn:
         """Generate a response (possibly with tool calls) given conversation history."""
@@ -115,6 +122,17 @@ class TargetAgent:
             # Insert the assistant message before the tool results
             messages.insert(len(messages) - len(new_calls), assistant_msg)
 
+            # Safety valve: if tool results pushed context beyond budget, return early
+            if self.max_context_tokens > 0:
+                current_tokens = sum(estimate_message_tokens(m) for m in messages)
+                if current_tokens > self.max_context_tokens - self.reserve_tokens:
+                    return Turn(
+                        role=Role.ASSISTANT,
+                        content=text or "I've processed your request.",
+                        turn_index=len(history),
+                        tool_calls=tuple(tool_calls_made),
+                    )
+
         # Fallback if max tool rounds exceeded
         return Turn(
             role=Role.ASSISTANT,
@@ -127,4 +145,11 @@ class TargetAgent:
         messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
         for turn in history:
             messages.append({"role": turn.role.value, "content": turn.content})
+        if self.max_context_tokens > 0:
+            messages = windowed_messages(
+                messages,
+                max_context_tokens=self.max_context_tokens,
+                anchor_turns=self.anchor_turns,
+                reserve_tokens=self.reserve_tokens,
+            )
         return messages

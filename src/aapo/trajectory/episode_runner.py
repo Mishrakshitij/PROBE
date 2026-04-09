@@ -29,7 +29,7 @@ class EpisodeRunner:
         self,
         target: TargetAgent,
         logger: InteractionLogger | None = None,
-        max_turns: int = 10,
+        max_turns: int = 14,
     ):
         self.target = target
         self.logger = logger

@@ -49,7 +49,7 @@ class RewardSchedule:
 
 @dataclass
 class CurriculumConfig:
-    k_max_stages: list[int] = field(default_factory=lambda: [6, 10, 16, 24])
+    k_max_stages: list[int] = field(default_factory=lambda: [4, 8, 12, 14])
     advance_threshold: float = 0.15  # min violation yield to advance
     stall_patience: int = 50         # episodes with no new policy → advance
 

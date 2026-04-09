@@ -8,6 +8,7 @@ as a group for GRPO/DPO/GFlowNet updates.
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
 from ..types import CandidateGroup, Episode, Role, Turn
@@ -18,6 +19,7 @@ class CandidateAuditorProtocol(Protocol):
     """Auditor that can generate multiple candidates."""
     def generate_candidates(self, history: list[Turn], n: int) -> list[str]: ...
     def log_prob(self, history: list[Turn], text: str) -> float: ...
+    def log_prob_batch(self, history: list[Turn], texts: list[str]) -> list[float]: ...
 
 
 class SharedPrefixRunner:
@@ -56,12 +58,9 @@ class SharedPrefixRunner:
         # Generate G candidate auditor messages
         candidates = auditor.generate_candidates(prefix, group_size)
 
-        # For each candidate, run a short continuation
-        continuations: list[Episode] = []
-        log_probs: list[float] = []
-
-        for i, candidate_text in enumerate(candidates):
-            # Create user turn from candidate
+        # For each candidate, run a single target response (continuation_turns=1).
+        # These are independent vLLM calls — run them in parallel.
+        def _run_continuation(candidate_text: str) -> Episode:
             user_turn = Turn(
                 role=Role.USER,
                 content=candidate_text,
@@ -69,36 +68,24 @@ class SharedPrefixRunner:
             )
             history = list(prefix) + [user_turn]
 
-            # Run continuation: target responds, then optionally more turns
             episode = Episode(episode_id=f"cand_{uuid.uuid4().hex[:8]}")
             episode.turns = list(history)
 
-            for step in range(self.continuation_turns):
-                # Target response
-                asst_turn = self.target.generate(episode.turns)
-                asst_turn = Turn(
-                    role=asst_turn.role,
-                    content=asst_turn.content,
-                    turn_index=turn_index + 1 + 2 * step,
-                    tool_calls=asst_turn.tool_calls,
-                )
-                episode.turns.append(asst_turn)
+            asst_turn = self.target.generate(episode.turns)
+            asst_turn = Turn(
+                role=asst_turn.role,
+                content=asst_turn.content,
+                turn_index=turn_index + 1,
+                tool_calls=asst_turn.tool_calls,
+            )
+            episode.turns.append(asst_turn)
+            return episode
 
-                # If more continuation turns needed, generate a simple follow-up
-                if step < self.continuation_turns - 1:
-                    follow_up = auditor.generate_candidates(episode.turns, 1)
-                    if follow_up:
-                        fu_turn = Turn(
-                            role=Role.USER,
-                            content=follow_up[0],
-                            turn_index=turn_index + 2 + 2 * step,
-                        )
-                        episode.turns.append(fu_turn)
+        with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+            continuations = list(pool.map(_run_continuation, candidates))
 
-            continuations.append(episode)
-            # Compute log-prob of the candidate under current policy
-            lp = auditor.log_prob(prefix, candidate_text)
-            log_probs.append(lp)
+        # Batch log-prob: one forward pass for all G candidates
+        log_probs = auditor.log_prob_batch(prefix, candidates)
 
         return CandidateGroup(
             prefix_turns=tuple(prefix),

@@ -91,6 +91,9 @@ class ReplayBuffer:
     def size(self) -> int:
         return len(self._episodes)
 
+    def __len__(self) -> int:
+        return len(self._episodes)
+
     def all_episodes(self) -> list[Episode]:
         return list(self._episodes)
 

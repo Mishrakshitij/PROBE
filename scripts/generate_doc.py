@@ -1017,7 +1017,7 @@ doc.add_heading('21. How to Run', level=1)
 doc.add_heading('Prerequisites', level=2)
 add_code_block(
     '# Activate conda environment\n'
-    'conda activate kshitij-aapo\n\n'
+    'conda activate aapo-env\n\n'
     '# Install performance dependencies\n'
     'pip install liger-kernel flash-attn --no-build-isolation\n\n'
     '# Initialize the flight database\n'
@@ -1151,7 +1151,7 @@ add_table(
 # ============================================================
 # SAVE
 # ============================================================
-output_path = '/home/salem.lahlou/kmishra/aapo/AAPO_Documentation.docx'
+output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'AAPO_Documentation.docx')
 doc.save(output_path)
 print(f'Document saved to {output_path}')
 print(f'Sections: 23')

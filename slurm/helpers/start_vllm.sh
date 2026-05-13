@@ -4,10 +4,10 @@
 
 set -euo pipefail
 
-export PATH="/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo/bin:$PATH"
-export HF_HOME=/nfs-stor/salem.lahlou/hf_cache
-export HF_HUB_CACHE=/nfs-stor/salem.lahlou/hf_cache/hub
-export TRANSFORMERS_CACHE=/nfs-stor/salem.lahlou/hf_cache/hub
+export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
+export HF_HUB_CACHE="$HF_HOME/hub"
+export TRANSFORMERS_CACHE="$HF_HOME/hub"
 
 MODEL="${1:-Qwen/Qwen3-30B-A3B-Instruct-2507}"
 GPU="${2:-0}"

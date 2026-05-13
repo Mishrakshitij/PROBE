@@ -20,17 +20,22 @@ GROUP_SIZE="${GROUP_SIZE:-4}"
 CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-25}"
 MODELS_CONFIG="${MODELS_CONFIG:-configs/models_slurm.yaml}"
 RUN_TAG="${RUN_TAG:-}"
+REWARD_PRESET="${REWARD_PRESET:-v3}"
 RUN_NAME="${METHOD}_seed${SEED}${RUN_TAG}"
 
-cd /home/salem.lahlou/kmishra/aapo
-export PATH="/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo/bin:$PATH"
+# Required env vars (set by user before sbatch):
+#   AAPO_HOME      — repository root (defaults to current directory)
+#   AAPO_CONDA_ENV — conda env path containing python + bitsandbytes/torch
+#   HF_HOME        — Hugging Face cache root
+cd "${AAPO_HOME:-$PWD}"
+export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
 
-export HF_HOME=/nfs-stor/salem.lahlou/hf_cache
-export HF_HUB_CACHE=/nfs-stor/salem.lahlou/hf_cache/hub
-export TRANSFORMERS_CACHE=/nfs-stor/salem.lahlou/hf_cache/hub
+export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
+export HF_HUB_CACHE="$HF_HOME/hub"
+export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-export CUDA_HOME=/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo
+export CUDA_HOME="${AAPO_CONDA_ENV:-/opt/conda}"
 
 mkdir -p slurm/logs data/logs data/checkpoints "$HF_HUB_CACHE"
 
@@ -53,7 +58,8 @@ python scripts/train.py \
     --checkpoint-every "$CHECKPOINT_EVERY" \
     --log-dir "data/logs/${RUN_NAME}" \
     --run-name "$RUN_NAME" --print-every 10 \
-    --continuation-turns 3
+    --continuation-turns 3 \
+    --reward-preset "$REWARD_PRESET"
 RC=$?
 
 kill $VLLM_PID 2>/dev/null; wait $VLLM_PID 2>/dev/null

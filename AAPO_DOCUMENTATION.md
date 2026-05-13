@@ -637,7 +637,7 @@ This saves compute and produces cleaner episodes for training.
 
 ```bash
 # Conda environment
-conda activate kshitij-aapo
+conda activate aapo-env
 
 # Install dependencies
 pip install liger-kernel flash-attn --no-build-isolation

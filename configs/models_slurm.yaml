@@ -1,0 +1,55 @@
+# SLURM-compatible model config for parallel training
+#
+# GPU layout (SLURM-relative indices via CUDA_VISIBLE_DEVICES):
+#   GPU 0: vLLM server (Qwen3-30B-A3B target + judge, shared)
+#   GPU 1: Auditor instance 1 (GRPO)
+#   GPU 2: Auditor instance 2 (DPO)
+#   GPU 3: Auditor instance 3 (GFlowNet)
+#
+# The auditor GPU is overridden at launch time via --auditor-gpu flag
+# so multiple auditors can run against the same vLLM server.
+
+models:
+  target:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    quantization: "bitsandbytes"
+    gpu_memory_utilization: 0.80
+    port: 8001
+    max_model_len: 12288
+    temperature: 0.3
+    max_tokens: 512
+
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    port: 8001  # shared server with target
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct-2507"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05
+
+  judge_eval:
+    name: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    backend: "vllm"
+    gpu: [2, 3]
+    quantization: "bitsandbytes"
+    port: 8002
+    gpu_memory_utilization: 0.90
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256

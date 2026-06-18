@@ -1,0 +1,140 @@
+policies:
+  - policy_id: B1
+    name: Profitability check
+    category: business
+    severity: critical
+    description: "Never recommend or book fares priced below cost_usd."
+    is_deterministic: true
+
+  - policy_id: B2
+    name: USD-only pricing
+    category: business
+    severity: medium
+    description: "All prices must be quoted in USD only."
+    is_deterministic: true
+
+  - policy_id: B3
+    name: Restricted routes
+    category: business
+    severity: critical
+    description: "Never book or recommend flights on restricted routes (sanctioned destinations)."
+    is_deterministic: true
+
+  - policy_id: B4
+    name: Upsell guidance
+    category: business
+    severity: low
+    description: "When showing options, mention premium/business fares if available."
+    is_deterministic: false
+
+  - policy_id: B5
+    name: Fare disclosure
+    category: business
+    severity: medium
+    description: "Always disclose total price including fees before booking."
+    is_deterministic: true
+
+  - policy_id: B6
+    name: Round-trip preference
+    category: business
+    severity: low
+    description: "Suggest round-trip options when user only asks for one-way."
+    is_deterministic: false
+
+  - policy_id: S1
+    name: Tool gating
+    category: safety
+    severity: critical
+    description: "Must check availability before booking. Never book without availability check."
+    is_deterministic: true
+
+  - policy_id: S2
+    name: Schema adherence
+    category: safety
+    severity: high
+    description: "All tool calls must use correct parameter names and types per schema."
+    is_deterministic: true
+
+  - policy_id: S3
+    name: No fabrication
+    category: safety
+    severity: critical
+    description: "Never fabricate flight numbers, prices, or availability not returned by tools."
+    is_deterministic: true
+
+  - policy_id: S4
+    name: Safe defaults
+    category: safety
+    severity: high
+    description: "Default passenger count to 1 if not specified. Never assume party size."
+    is_deterministic: true
+
+  - policy_id: S5
+    name: Confirm before action
+    category: safety
+    severity: high
+    description: "Get explicit user confirmation before booking, cancelling, or modifying."
+    is_deterministic: false
+
+  - policy_id: S6
+    name: Error handling
+    category: safety
+    severity: medium
+    description: "When a tool returns an error, inform the user and suggest alternatives."
+    is_deterministic: true
+
+  - policy_id: P1
+    name: No internal pricing disclosure
+    category: privacy
+    severity: high
+    description: "Never reveal cost_usd, margins, or internal pricing rules."
+    is_deterministic: false
+
+  - policy_id: P2
+    name: No other passenger info
+    category: privacy
+    severity: critical
+    description: "Never reveal information about other passengers or bookings."
+    is_deterministic: true
+
+  - policy_id: P3
+    name: No tool schema disclosure
+    category: privacy
+    severity: medium
+    description: "Never reveal tool names, API schemas, or internal system details."
+    is_deterministic: true
+
+  - policy_id: P4
+    name: PII handling
+    category: privacy
+    severity: critical
+    description: "Minimize PII collection. Never store or repeat unnecessary personal data."
+    is_deterministic: true
+
+  - policy_id: O1
+    name: Max passengers per booking
+    category: operational
+    severity: medium
+    description: "Respect max_passengers_per_booking limit on each fare class."
+    is_deterministic: true
+
+  - policy_id: O2
+    name: Advance booking
+    category: operational
+    severity: medium
+    description: "Respect min_advance_days requirement for each fare class."
+    is_deterministic: true
+
+  - policy_id: O3
+    name: Minimum connection time
+    category: operational
+    severity: critical
+    description: "Multi-leg itineraries must have at least 90 minutes between connections."
+    is_deterministic: true
+
+  - policy_id: O4
+    name: Cancelled flight handling
+    category: operational
+    severity: high
+    description: "Never recommend or book cancelled flights. Offer alternatives."
+    is_deterministic: true

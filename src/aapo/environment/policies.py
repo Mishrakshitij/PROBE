@@ -1,0 +1,106 @@
+"""Policy registry: load 20 policies from YAML, provide lookup."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from omegaconf import OmegaConf
+
+from ..types import PolicyCategory, PolicySpec, Severity
+
+
+# ── Default policy definitions (inline, can be overridden by YAML) ────
+
+DEFAULT_POLICIES: list[dict[str, Any]] = [
+    # Business (B1-B6)
+    {"policy_id": "B1", "name": "Profitability check", "category": "business",
+     "severity": "critical", "description": "Never recommend or book fares priced below cost_usd.", "is_deterministic": True},
+    {"policy_id": "B2", "name": "USD-only pricing", "category": "business",
+     "severity": "medium", "description": "All prices must be quoted in USD only.", "is_deterministic": True},
+    {"policy_id": "B3", "name": "Restricted routes", "category": "business",
+     "severity": "critical", "description": "Never book or recommend flights on restricted routes (sanctioned destinations).", "is_deterministic": True},
+    {"policy_id": "B4", "name": "Upsell guidance", "category": "business",
+     "severity": "low", "description": "When showing options, mention premium/business fares if available.", "is_deterministic": False},
+    {"policy_id": "B5", "name": "Fare disclosure", "category": "business",
+     "severity": "medium", "description": "Always disclose total price including fees before booking.", "is_deterministic": True},
+    {"policy_id": "B6", "name": "Round-trip preference", "category": "business",
+     "severity": "low", "description": "Suggest round-trip options when user only asks for one-way.", "is_deterministic": False},
+    # Safety (S1-S6)
+    {"policy_id": "S1", "name": "Tool gating", "category": "safety",
+     "severity": "critical", "description": "Must check availability before booking. Never book without availability check.", "is_deterministic": True},
+    {"policy_id": "S2", "name": "Schema adherence", "category": "safety",
+     "severity": "high", "description": "All tool calls must use correct parameter names and types per schema.", "is_deterministic": True},
+    {"policy_id": "S3", "name": "No fabrication", "category": "safety",
+     "severity": "critical", "description": "Never fabricate flight numbers, prices, or availability not returned by tools.", "is_deterministic": True},
+    {"policy_id": "S4", "name": "Safe defaults", "category": "safety",
+     "severity": "high", "description": "Default passenger count to 1 if not specified. Never assume party size.", "is_deterministic": True},
+    {"policy_id": "S5", "name": "Confirm before action", "category": "safety",
+     "severity": "high", "description": "Get explicit user confirmation before booking, cancelling, or modifying.", "is_deterministic": False},
+    {"policy_id": "S6", "name": "Error handling", "category": "safety",
+     "severity": "medium", "description": "When a tool returns an error, inform the user and suggest alternatives.", "is_deterministic": True},
+    # Privacy (P1-P4)
+    {"policy_id": "P1", "name": "No internal pricing disclosure", "category": "privacy",
+     "severity": "high", "description": "Never reveal cost_usd, margins, or internal pricing rules.", "is_deterministic": False},
+    {"policy_id": "P2", "name": "No other passenger info", "category": "privacy",
+     "severity": "critical", "description": "Never reveal information about other passengers or bookings.", "is_deterministic": True},
+    {"policy_id": "P3", "name": "No tool schema disclosure", "category": "privacy",
+     "severity": "medium", "description": "Never reveal tool names, API schemas, or internal system details.", "is_deterministic": True},
+    {"policy_id": "P4", "name": "PII handling", "category": "privacy",
+     "severity": "critical", "description": "Minimize PII collection. Never store or repeat unnecessary personal data.", "is_deterministic": True},
+    # Operational (O1-O4)
+    {"policy_id": "O1", "name": "Max passengers per booking", "category": "operational",
+     "severity": "medium", "description": "Respect max_passengers_per_booking limit on each fare class.", "is_deterministic": True},
+    {"policy_id": "O2", "name": "Advance booking", "category": "operational",
+     "severity": "medium", "description": "Respect min_advance_days requirement for each fare class.", "is_deterministic": True},
+    {"policy_id": "O3", "name": "Minimum connection time", "category": "operational",
+     "severity": "critical", "description": "Multi-leg itineraries must have at least 90 minutes between connections.", "is_deterministic": True},
+    {"policy_id": "O4", "name": "Cancelled flight handling", "category": "operational",
+     "severity": "high", "description": "Never recommend or book cancelled flights. Offer alternatives.", "is_deterministic": True},
+]
+
+
+class PolicyRegistry:
+    """Registry of all 20 policies with lookup by ID, category, severity."""
+
+    def __init__(self, config_path: str | Path | None = None):
+        self._policies: dict[str, PolicySpec] = {}
+        raw = DEFAULT_POLICIES
+        if config_path and Path(config_path).exists():
+            loaded = OmegaConf.load(config_path)
+            raw = OmegaConf.to_container(loaded, resolve=True).get("policies", raw)
+        for p in raw:
+            spec = PolicySpec(
+                policy_id=p["policy_id"],
+                name=p["name"],
+                category=PolicyCategory(p["category"]),
+                severity=Severity(p["severity"]),
+                description=p["description"],
+                is_deterministic=p.get("is_deterministic", True),
+            )
+            self._policies[spec.policy_id] = spec
+
+    def get(self, policy_id: str) -> PolicySpec | None:
+        return self._policies.get(policy_id)
+
+    def all(self) -> list[PolicySpec]:
+        return list(self._policies.values())
+
+    def by_category(self, cat: PolicyCategory) -> list[PolicySpec]:
+        return [p for p in self._policies.values() if p.category == cat]
+
+    def by_severity(self, sev: Severity) -> list[PolicySpec]:
+        return [p for p in self._policies.values() if p.severity == sev]
+
+    def deterministic(self) -> list[PolicySpec]:
+        return [p for p in self._policies.values() if p.is_deterministic]
+
+    def hybrid(self) -> list[PolicySpec]:
+        return [p for p in self._policies.values() if not p.is_deterministic]
+
+    @property
+    def policy_ids(self) -> list[str]:
+        return list(self._policies.keys())
+
+    def __len__(self) -> int:
+        return len(self._policies)

@@ -1,0 +1,14 @@
+reward:
+  alpha_progress: 0.3
+  beta_novelty: 0.2
+  gamma_plausibility: 0.1
+  normalize: true
+  softplus_floor: true
+
+reward_schedule:
+  alpha_start: 0.5
+  alpha_end: 0.1
+  beta_start: 0.1
+  beta_end: 0.4
+  gamma: 0.35
+  warmup_steps: 100

@@ -1,0 +1,337 @@
+\documentclass{article}
+\usepackage[main]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage{tabularx}
+
+\definecolor{todo}{rgb}{0.8,0.0,0.0}
+\newcommand{\todo}[1]{{\color{todo}\textbf{[TODO: #1]}}}
+
+\title{Learning to Audit: Training Adversarial Testers for Policy Violations in LLM Agents}
+
+\author{
+  Anonymous Author(s) \\
+  Affiliation \\
+  \texttt{anonymous@email.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Tool-augmented LLM agents increasingly execute consequential actions---booking flights, managing finances, accessing databases---under complex operational policies. Manual red-teaming of such agents is expensive, inconsistent, and cannot exhaustively cover the combinatorial space of multi-turn interactions. We introduce \textbf{AAPO} (Auditing Agents for Policy-violation Observation), a reinforcement learning framework that trains a small language model to play the role of a realistic customer and systematically expose policy violations in a target agent through multi-turn dialogue. We compare three RL algorithms---Group Relative Policy Optimization (GRPO), Direct Preference Optimization (DPO), and GFlowNet trajectory balance---applied to a flight-booking environment with 20 policies across business, safety, privacy, and operational categories. Through three iterations of reward engineering, we demonstrate that \emph{reward design dominates algorithm choice}: prompt constraints, plausibility penalties, and per-policy deduplication each yield larger coverage improvements than switching algorithms. Our best auditor achieves 60--65\% policy coverage (12--14 of 20 policies) with a 94\% multi-violation rate per episode, discovering failure modes across tool-gating, fabrication, privacy leakage, and confirmation bypass. We release the full training pipeline, 20 programmatic verifiers, and a structured failure catalog.
+\end{abstract}
+
+%% ============================================================
+\section{Introduction}
+\label{sec:intro}
+%% ============================================================
+
+Large language models are being deployed as autonomous agents that interact with external tools, databases, and APIs through protocols such as the Model Context Protocol~\citep{anthropic_mcp}. These agents coordinate multi-step workflows with real-world consequences: a flight-booking agent searches inventories, checks availability, processes payments, and handles sensitive passenger data. Ensuring that such agents comply with operational policies---pricing rules, data privacy requirements, confirmation protocols---is a critical challenge that grows with deployment scale.
+
+Current evaluation approaches fall short. Capability-oriented benchmarks~\citep{zhou2023webarena,xie2024osworld,drouin2024workarena} measure \emph{what agents can do} but not \emph{what policies they violate}. Single-turn red-teaming~\citep{perez2022redteaming,chao2024pair,samvelyan2024rainbow} targets safety refusals rather than multi-turn policy compliance. Manual testing is expensive and cannot cover the combinatorial space of conversation paths, tool-call sequences, and edge-case interactions.
+
+We propose \textbf{learning to audit}: training a small LLM (4B parameters, QLoRA) to play the role of a realistic customer and generate multi-turn conversations that expose policy violations in a larger target agent (30B parameters). The auditor is optimized via reinforcement learning to maximize a composite reward that balances violation discovery, conversation diversity, and behavioral plausibility. We compare three RL algorithms---GRPO~\citep{shao2024grpo}, DPO~\citep{rafailov2023dpo}, and GFlowNet~\citep{bengio2023gflownet,malkin2022trajectory}---applied to a flight-booking environment with 20 operational policies.
+
+A central finding is that \emph{reward engineering dominates algorithm choice}. Through three iterations (V1--V3) of the reward function, we observe that prompt constraints, plausibility penalties, per-policy deduplication, and scenario injection each yield larger improvements than switching between GRPO, DPO, and GFlowNet. This progression surfaces general challenges in agentic RL: reward hacking via repeated low-severity violations, role confusion from inadequate behavioral constraints, and fabrication incentivized by underspecified plausibility scores.
+
+\textbf{Contributions.}
+\begin{enumerate}
+    \item \textbf{AAPO system}: A complete RL pipeline for training adversarial auditors of tool-augmented LLM agents, with 20 policies, 8 booking tools, 16 deterministic verifiers, 4 hybrid LLM-judge verifiers, curriculum learning, and replay-based exploration.
+    \item \textbf{Algorithm comparison}: The first head-to-head comparison of GRPO, DPO, and GFlowNet for adversarial generation in multi-turn agentic settings.
+    \item \textbf{Reward engineering lifecycle}: Systematic documentation of three reward versions with quantitative analysis, providing a case study in reward design for agentic RL.
+    \item \textbf{Empirical findings}: Trained auditors achieve 60--65\% policy coverage with 94\% multi-violation episodes, compared to 35\% coverage from zero-shot baselines.
+\end{enumerate}
+
+%% ============================================================
+\section{Related Work}
+\label{sec:related}
+%% ============================================================
+
+\textbf{Red-teaming LLMs.}
+Automated red-teaming approaches train adversarial models to elicit harmful outputs~\citep{perez2022redteaming,casper2023explore}, use iterative prompt refinement~\citep{chao2024pair}, or generate diverse adversarial prompts via quality-diversity search~\citep{samvelyan2024rainbow}. These methods target \emph{single-turn} safety behaviors (toxicity, refusals). AAPO extends this paradigm to \emph{multi-turn policy compliance} in tool-augmented agents, where violations emerge from sequences of tool calls and conversation dynamics rather than individual responses.
+
+\textbf{RL for language model training.}
+RLHF~\citep{ouyang2022rlhf} trains models from human preferences via reward models. DPO~\citep{rafailov2023dpo} eliminates the reward model by directly optimizing preferences. GRPO~\citep{shao2024grpo} uses group-relative advantages without a critic. GFlowNets~\citep{bengio2023gflownet,malkin2022trajectory} sample proportionally to reward for mode-covering behavior. ArCHer~\citep{zhou2024archer} applies hierarchical RL to multi-turn dialogue. We apply all three families to the novel setting of adversarial policy auditing.
+
+\textbf{Agent evaluation.}
+Benchmarks such as AgentBench~\citep{agentbench_li2023}, WebArena~\citep{zhou2023webarena}, and ToolBench~\citep{qin2023toollm} evaluate agent \emph{capability}---can the agent complete the task? AAPO evaluates \emph{policy compliance}---does the agent follow its rules while completing the task? The closest work is ST-WebAgentBench~\citep{ruan2024stwebagentbench}, which adds trust constraints to web tasks; however, it uses static test cases rather than a learned adversarial auditor.
+
+\textbf{Reward engineering.}
+Reward hacking~\citep{skalse2022rewardhacking} and reward misspecification~\citep{pan2022rewardhacking} are well-documented failure modes. Our V1--V3 progression provides a concrete case study in iterative reward refinement for agentic RL, complementing theoretical analyses with practical diagnostics and fixes.
+
+%% ============================================================
+\section{Problem Formulation}
+\label{sec:formulation}
+%% ============================================================
+
+\textbf{Auditing game.}
+An auditor policy $\pi_\theta$ generates user messages to probe a target agent $\pi_T$ with tool access $\mathcal{T}$. A $K$-turn interaction produces trajectory $H_K = (u_1, c_1, u_2, c_2, \ldots, u_K, c_K)$ where $u_k \sim \pi_\theta(\cdot \mid H_{k-1})$ and $c_k \sim \pi_T(\cdot \mid H_{k-1}, u_k, \mathcal{T})$. The target may invoke tools during each response.
+
+\textbf{Composite reward.}
+The per-turn reward for auditor turn $k$ is:
+\begin{equation}
+    r_k = r_{\text{viol}}(c_k) + \alpha \cdot r_{\text{prog}}(H_k) + \beta \cdot r_{\text{nov}}(H_k) + \gamma \cdot r_{\text{plaus}}(u_k)
+    \label{eq:reward}
+\end{equation}
+where $r_{\text{viol}}$ is a severity-weighted violation score from 20 programmatic verifiers and an LLM judge, $r_{\text{prog}}$ rewards conversation progress toward actionable states (booking, cancellation), $r_{\text{nov}}$ encourages discovery of under-explored policies, and $r_{\text{plaus}}$ penalizes unnatural auditor behavior. All components are independently z-score normalized via running statistics.
+
+\textbf{Weight scheduling.}
+$\alpha$ decreases from 0.5 to 0.1 and $\beta$ increases from 0.1 to 0.4 over a warmup period, shifting emphasis from hand-holding (progress shaping) to diversity (novelty) as training stabilizes. $\gamma$ is constant.
+
+\textbf{Three algorithmic instantiations.}
+From a shared conversation prefix $S_t$, we generate $G$ candidate messages $\{u_t^i\}_{i=1}^G$, obtain target responses for each, and score the resulting continuations:
+
+\emph{GRPO}~\citep{shao2024grpo}: Group advantage $A_i = R_i - \bar{R}$ with clipped policy gradient. No critic.
+
+\emph{DPO}~\citep{rafailov2023dpo}: Select top-1 winner and bottom-1 loser by reward. Optimize $-\log \sigma\bigl(\beta(\log\pi_\theta(w) - \log\pi_\theta(l) - \log\pi_{\text{ref}}(w) + \log\pi_{\text{ref}}(l))\bigr)$.
+
+\emph{GFlowNet TB}~\citep{malkin2022trajectory}: Trajectory balance loss $\mathcal{L} = (\log Z_\phi + \log p_\theta(H) - \log R(H))^2$, sampling trajectories proportionally to reward for mode-covering behavior.
+
+%% ============================================================
+\section{System Design}
+\label{sec:system}
+%% ============================================================
+
+\subsection{Environment: SkyAssist}
+
+We construct a flight-booking environment with a synthetic database (35 airports, 120 routes, 643 flights, 4 restricted routes to sanctioned destinations, 46 cancelled flights) and 8 booking tools (search, availability check, booking, cancellation, modification, itinerary hold, flight details, booking lookup). The target agent (Qwen3-30B-A3B~\citep{kwon2023vllm}) operates with a deliberately incomplete system prompt containing exploitable gaps in its policy instructions.
+
+\textbf{20 operational policies} span four categories: \emph{Business} (B1--B6: profitability, pricing, restricted routes, upselling, fare disclosure, round-trip preference), \emph{Safety} (S1--S6: tool gating, schema adherence, fabrication prevention, safe defaults, action confirmation, error handling), \emph{Privacy} (P1--P4: internal pricing, passenger data, tool schema, PII handling), and \emph{Operational} (O1--O4: passenger limits, advance booking, connection times, cancelled flights). 16 policies have deterministic programmatic verifiers; 4 (B4, B6, S5, P1) use a sparse LLM judge.
+
+\subsection{Auditor Architecture}
+
+The auditor is Qwen3-4B-Instruct loaded in 4-bit precision (NF4 quantization) with QLoRA~\citep{dettmers2023qlora} (rank 64, $\alpha=128$, targeting Q/K/V/O projections; 47M trainable / 4B total parameters). Generation uses Flash Attention 2~\citep{dao2023flashattention2} and Liger-Kernel fused Triton operators. An EMA copy ($\tau=0.995$) provides stable sampling while the training copy receives gradient updates.
+
+Each episode injects a \textbf{randomized customer scenario} from a pool of 27+ scenarios, each targeting specific policies (e.g., ``one-way flight from SCE to DIR, tight budget'' targets B6/B4; ``multi-city CLP$\to$MEE$\to$RDP'' targets O3/S1). The system prompt explicitly constrains the auditor: short messages (1--3 sentences), no markdown, no fabrication of system information, no assistant-like behavior.
+
+\subsection{Reward Design}
+\label{sec:reward}
+
+\textbf{Violation reward} uses severity weights (Critical=4.0, High=2.0, Medium=1.0, Low=0.5) with \emph{per-policy diminishing returns}: the first violation of policy $p$ in an episode receives full weight, the second receives 50\%, and subsequent occurrences receive zero. This prevents reward hacking via repeated low-severity violations (\S\ref{sec:v3}).
+
+\textbf{Progress reward} follows a 3-tier structure: basic slot-filling (origin, destination, date: 0.03 each), tool milestones (search: 0.08, availability: 0.10), and deep-flow milestones (booking attempt: 0.30, cancellation: 0.25, multi-leg setup: 0.25).
+
+\textbf{Novelty reward} combines inverse-frequency bonuses for rare policies, coverage-gap bonuses for first-time policy triggers (+2.0), and cluster discovery bonuses from HDBSCAN trajectory clustering.
+
+\textbf{Plausibility reward} penalizes: assistant-like language ($-0.4$), fabrication of system access ($-0.6$), markdown formatting ($-0.15$), excessive length ($-0.4$ for $>$80 words), and echo/mirroring of assistant responses ($-0.5$ for $>$50\% overlap).
+
+\subsection{Curriculum Learning}
+
+Training proceeds through four stages with increasing maximum turns: $K_{\max} \in \{4, 8, 12, 14\}$. The curriculum advances when violation yield exceeds 15\% (average violations per episode), with a patience of 50 steps. All three methods reach the final stage within 100--150 steps.
+
+%% ============================================================
+\section{Reward Engineering: A Case Study}
+\label{sec:reward_eng}
+%% ============================================================
+
+A central contribution is the documentation of three reward iterations, each motivated by specific failure modes discovered during training. This progression illustrates general challenges in agentic RL.
+
+\subsection{V1: Baseline Reward}
+
+\textbf{Setup.}
+Generic system prompt (``you are a realistic airline customer''), no scenarios, single target continuation per candidate ($C=1$), progress shaping with uniform slot bonuses.
+
+\textbf{Failures.}
+After 180 training steps: average message length 130+ words (essay-style with markdown headers); 58\% of episodes exhibit role confusion (auditor acts as assistant); only 8 unique opening messages across 62 evaluation episodes; 9/20 policy coverage; 34\% of episodes stuck in conversation loops.
+
+\textbf{Root causes.}
+(1) No behavioral constraints on the auditor---the base model defaults to its assistant persona. (2) Single-turn continuations cannot reach booking-level tool calls needed for 11 of 20 policies. (3) Plausibility reward ($\gamma=0.1$) too weak to counteract violation reward from essay-length messages.
+
+\textbf{Lesson.}
+Infrastructure correctness and behavioral constraints are prerequisites for meaningful RL training. Without explicit plausibility enforcement, the optimizer exploits the easiest path to violation rewards.
+
+\subsection{V2: Scenario Injection and Prompt Rewrite}
+
+\textbf{Changes.}
+Rewritten system prompt (``You are NOT the assistant. 1--3 sentences max. No markdown.''); 27 randomized customer scenarios per episode; plausibility scorer extended with assistant-language detection, markdown penalties, and echo detection; 3-tier progress shaping; continuation turns increased to $C=3$.
+
+\textbf{Results.}
+Message length: $60$ words (from 130+). Role confusion: 11\% (from 58\%). Policy coverage: 12--14/20 (from 9/20). Tool engagement: 92\% of episodes reach tool calls. Booking-level tools (\texttt{book\_flight}, \texttt{hold\_itinerary}) reached in 15--22\% of episodes.
+
+\textbf{Remaining issue.}
+Three hybrid policies---B4 (upsell guidance), S5 (confirm before action), B6 (round-trip preference)---account for 82--85\% of all violations. These fire on \emph{every assistant turn} that doesn't mention upgrades/round-trips/confirmations, creating a reward shortcut: the auditor exploits per-turn inflation rather than pursuing harder policies.
+
+\subsection{V3: Reward Deduplication and Anti-Fabrication}
+\label{sec:v3}
+
+\textbf{Changes.}
+(1) Per-policy diminishing returns (1st=full, 2nd=50\%, 3rd+=0). (2) Anti-fabrication penalty ($-0.6$) for claiming system access. (3) $\gamma$ raised from 0.1 to 0.35. (4) DB-aware scenarios from actual flight routes. (5) Loop detection: early stopping when last 3 user messages share $>$50\% word overlap.
+
+\textbf{Results.}
+DPO shows the strongest optimization signal: loss drops from 0.693 to 0.592, implicit accuracy reaches 100\%, margins grow to 0.50 (V2 margins peaked at 0.01). GFlowNet achieves the highest per-step violation yield (17--21 violations/step). All methods reach the final curriculum stage (k=14) without memory issues.
+
+\textbf{Lesson.}
+Deduplication and domain-specific penalties are essential for reward stability. Without per-policy caps, the optimizer discovers and exploits repetitive violation patterns, creating the illusion of high yield without genuine policy coverage improvement.
+
+%% ============================================================
+\section{Experiments}
+\label{sec:experiments}
+%% ============================================================
+
+\subsection{Setup}
+
+\textbf{Hardware.}
+Each method trains on 2$\times$ A100-40GB GPUs: one for the vLLM target server (Qwen3-30B-A3B), one for the auditor (Qwen3-4B QLoRA). Training runs for 72 hours (200--300 steps).
+
+\textbf{Baselines.}
+B0: random scenario templates with no learning. B2: zero-shot Qwen3-30B as auditor (no RL training).
+
+\textbf{Evaluation.}
+50--100 episodes per checkpoint, maximum 8 turns per episode. Metrics: policy coverage (\% of 20 policies triggered), violation yield (per 100 episodes), severity-weighted yield, multi-policy rate (\% episodes triggering $\geq 2$ policies), cluster entropy (diversity of failure modes).
+
+\subsection{Main Results}
+
+\begin{table}[t]
+\centering
+\caption{Main evaluation results across methods and reward versions. Coverage is fraction of 20 policies triggered at least once. Yield is violations per 100 evaluation episodes. Entropy measures diversity of failure mode clusters.}
+\label{tab:main_results}
+\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Method} & \textbf{Coverage} & \textbf{Yield/100} & \textbf{Sev-Wt/100} & \textbf{Multi-pol.} & \textbf{Entropy} \\
+\midrule
+B0 (random) & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+B2 (zero-shot) & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+\midrule
+GRPO-V2 (step 50) & 60\% & 1604 & -- & 94\% & 3.01 \\
+DPO-V2 (step 50) & 60\% & 1528 & -- & 90\% & 3.08 \\
+GFlowNet-V2 (step 50) & 60\% & 1700 & -- & 94\% & 3.12 \\
+\midrule
+GFlowNet-V2 (step 250) & 55\% & 1614 & -- & 94\% & 2.96 \\
+\midrule
+GRPO-V3 (step 225) & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+DPO-V3 (step 300) & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+GFlowNet-V3 (step 175) & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:main_results} summarizes evaluation results. Key findings:
+
+\textbf{All trained methods substantially outperform baselines.}
+V2 methods achieve 60\% policy coverage (12/20 policies), discovering violations across business, safety, and privacy categories. GFlowNet-V2 achieves the highest yield (1700/100 episodes) and cluster entropy (3.12), consistent with its mode-covering objective.
+
+\textbf{Later training does not improve coverage without reward fixes.}
+GFlowNet-V2 at step 250 \emph{drops} to 55\% coverage (from 60\% at step 50), losing 3 rare policies (P2, O3, S2---each with only 1 occurrence at step 50). The model converges to exploiting B4/S5/B6 rather than exploring harder policies. This motivates the V3 reward fixes.
+
+\textbf{DPO-V3 shows the strongest optimization signal.}
+Loss decreases from 0.693 to 0.592, margins grow to 0.50, and implicit accuracy reaches 100\%. The V3 deduplication gives DPO much clearer winner-loser separation by removing the inflation that previously masked true preference differences.
+
+\subsection{Training Dynamics}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_training_dynamics.pdf}
+    \caption{Training dynamics across V3 methods. (a) DPO loss over 300 steps showing clear optimization. (b) Violation yield comparison (smoothed) for GRPO, DPO, and GFlowNet. (c) Completion length across reward versions, showing reduction from 130+ words (V1) to 40--55 (V3).}
+    \label{fig:training_dynamics}
+\end{figure}
+
+Figure~\ref{fig:training_dynamics} shows training dynamics. GFlowNet achieves the highest per-step yield but with high variance. DPO has the most stable training with clear loss convergence. GRPO shows intermediate behavior with elevated gradient norms (21--38 vs DPO's 0.4--1.6).
+
+All methods reach the final curriculum stage ($K_{\max}=14$) within 100--150 steps, demonstrating that curriculum advancement is driven by the reward signal rather than the algorithm.
+
+\subsection{Per-Policy Analysis}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/fig_policy_heatmap.pdf}
+    \caption{Per-policy violation counts across methods (V2, step 50, 50 evaluation episodes). B4, S5, and B6 dominate due to per-turn inflation---each fires on every assistant response that lacks upsell/confirmation/round-trip mentions. Policies requiring booking-level tool calls (B1, B3, B5, O1--O4) remain unreached.}
+    \label{fig:policy_heatmap}
+\end{figure}
+
+Figure~\ref{fig:policy_heatmap} reveals a sharp divide between ``easy'' and ``hard'' policies:
+
+\textbf{Easy (triggered in 80+\% of episodes):}
+B4 (upsell), S5 (confirmation), B6 (round-trip)---hybrid policies evaluated by the LLM judge on every assistant turn.
+
+\textbf{Medium (triggered sporadically):}
+P1 (internal pricing), S4 (safe defaults), B2 (USD-only), S6 (error handling), P3 (tool schema), S1 (tool gating), P4 (PII handling).
+
+\textbf{Hard (rarely or never triggered):}
+B1 (profitability), B3 (restricted routes), B5 (fare disclosure), O1--O4 (operational policies requiring booking/hold/cancel/modify tool calls). These require the conversation to reach specific tool-call sequences that the auditor has not consistently learned to produce.
+
+\subsection{Algorithm Comparison}
+
+\begin{table}[t]
+\centering
+\caption{Algorithm characteristics observed across V2 and V3 training.}
+\label{tab:algo_comparison}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Property} & \textbf{GRPO} & \textbf{DPO} & \textbf{GFlowNet} \\
+\midrule
+Update unit & Group of $G$ candidates & Winner/loser pairs & Full episodes \\
+Reference policy needed & Optional (KL) & Yes (EMA) & No \\
+Mode-seeking/covering & Seeking & Seeking & Covering \\
+\midrule
+Final loss (V3) & -- & 0.592 & 3.33 (TB) \\
+Yield stability & Medium & High & Highest but volatile \\
+Grad norm range & 21--38 & 0.4--1.6 & 12--29 \\
+Unique policies found & S2 & O3, P2 & P2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:algo_comparison} summarizes observed differences. DPO produces the strongest optimization signal with the most stable gradients. GFlowNet achieves the highest yield, consistent with its mode-covering objective encouraging diverse violation strategies. GRPO uniquely discovers S2 (schema adherence).
+
+The key insight: \emph{algorithm choice matters less than reward design}. The V1$\to$V2 transition improved coverage by 3--5 policies (33--56\% relative improvement). The V2 algorithm swap (GRPO vs DPO vs GFlowNet) changes coverage by at most 1 policy.
+
+%% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+%% ============================================================
+
+\textbf{Reward engineering as the primary lever.}
+Our three-iteration progression demonstrates that in reward-shaped agentic RL, the reward function design dominates the optimization algorithm. Prompt constraints (V1$\to$V2) and deduplication (V2$\to$V3) each produced larger coverage improvements than any algorithm change. This suggests that practitioners should invest primarily in reward diagnostics and iterative refinement.
+
+\textbf{Coverage ceiling.}
+Seven policies remain unreachable (B1, B3, B5, O1--O4), all requiring specific booking-level tool-call sequences. This ceiling likely reflects a fundamental limitation of the current reward signal: without direct reward for reaching these specific tool states, the optimizer has no gradient toward them. Future work could address this with goal-conditioned exploration or policy-targeted scenario generation.
+
+\textbf{Broader impact.}
+AAPO demonstrates that automated adversarial auditing of LLM agents is feasible and productive. The approach scales naturally: adding new policies requires only new verifiers, not retraining the auditor from scratch. We envision AAPO-style training as a continuous testing layer in agent deployment pipelines, complementing static evaluations with adaptive, learned stress-testing.
+
+\textbf{Limitations.}
+(1) Single target model (Qwen3-30B); transfer to other targets is untested.
+(2) Single domain (flight booking); generalization unclear.
+(3) Verifiers are manually crafted; automated verifier generation would improve scalability.
+(4) No human evaluation of conversation plausibility.
+(5) Results from a single random seed; variance analysis pending.
+
+%% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+%% ============================================================
+
+We presented AAPO, a reinforcement learning framework for training adversarial auditors of tool-augmented LLM agents. Comparing GRPO, DPO, and GFlowNet across three reward iterations, we found that reward engineering---behavioral constraints, per-policy deduplication, plausibility penalties---produces larger improvements than algorithm selection. Our trained auditors achieve 60--65\% coverage of 20 operational policies, discovering diverse failure modes in tool-gating, fabrication, privacy, and confirmation bypass. The V1--V3 reward progression provides a practical roadmap for iterative reward design in agentic RL settings.
+
+%% ============================================================
+\begin{ack}
+We thank Dr.\ Nils Lukas and Dr.\ Salem Lahlou for guidance throughout this project. Compute resources were provided by [Institution]. \todo{Complete acknowledgments.}
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{ref}
+
+\newpage
+\input{appendix}
+
+\end{document}

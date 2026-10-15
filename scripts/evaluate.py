@@ -12,13 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.environment.database import FlightDB
-from aapo.environment.policies import PolicyRegistry
-from aapo.environment.logger import InteractionLogger
-from aapo.replay.embedder import TrajectoryEmbedder
-from aapo.replay.cluster import ClusterManager
-from aapo.evaluation.report import ReportGenerator
-from aapo.types import Episode, Turn, Role, ViolationLabel, RewardBreakdown, Severity, ToolCall
+from probe.environment.database import FlightDB
+from probe.environment.policies import PolicyRegistry
+from probe.environment.logger import InteractionLogger
+from probe.replay.embedder import TrajectoryEmbedder
+from probe.replay.cluster import ClusterManager
+from probe.evaluation.report import ReportGenerator
+from probe.types import Episode, Turn, Role, ViolationLabel, RewardBreakdown, Severity, ToolCall
 
 
 def load_episodes_from_logs(log_dir: str) -> list[Episode]:
@@ -65,7 +65,7 @@ def load_episodes_from_logs(log_dir: str) -> list[Episode]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate AAPO episodes")
+    parser = argparse.ArgumentParser(description="Evaluate PROBE episodes")
     parser.add_argument("--log-dir", type=str, default="data/logs")
     parser.add_argument("--output", type=str, default="data/eval_report.json")
     args = parser.parse_args()

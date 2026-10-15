@@ -1,8 +1,8 @@
 ================================================================
-AAPO — INSTRUCTIONS FOR PARALLEL CLUSTER
+PROBE — INSTRUCTIONS FOR PARALLEL CLUSTER
 ================================================================
 
-You're helping run AAPO experiments on a parallel cluster. The codebase is in
+You're helping run PROBE experiments on a parallel cluster. The codebase is in
 AAPO_codebase_clean.zip (~3 MB, no checkpoints). Read AAPO_Experiment_Plan.docx
 (in the zip) for full project context including codebase walkthrough, training
 pipeline, prior experiments (V1/V2/V3), and risk register.
@@ -68,8 +68,8 @@ unzip AAPO_codebase_clean.zip
 cd <unzipped-dir>
 
 # 2. Conda environment (Python 3.11)
-conda create -n aapo python=3.11 -y
-conda activate aapo
+conda create -n probe python=3.11 -y
+conda activate probe
 
 # 3. Install dependencies (see AAPO_Experiment_Plan.docx Section 2 for full list)
 pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121
@@ -121,12 +121,12 @@ Implementation steps (work on a feature branch):
   # Read /tmp/tau-bench/tau_bench/envs/airline/
 
   # Step 2: Wrap their target as our InferenceBackend
-  # File: src/aapo/environment/tau_bench_target.py
+  # File: src/probe/environment/tau_bench_target.py
   # Class TauBenchTarget that implements our protocol:
   #     generate(history) -> Turn (with optional tool_calls)
 
   # Step 3: Adapt their policies to our verifier framework
-  # File: src/aapo/reward/verifiers_taubench.py
+  # File: src/probe/reward/verifiers_taubench.py
   # Their airline policies are in tau_bench/envs/airline/data/policy.md
   # Convert each policy to a Verifier subclass returning ViolationLabel
 
@@ -143,7 +143,7 @@ Implementation steps (work on a feature branch):
 
   # Step 7: Train V3 on tau-bench
   METHOD=dpo SEED=42 RUN_TAG=_taubench_v3 \
-    sbatch --job-name=aapo-dpo-taubench slurm/train_single.sbatch
+    sbatch --job-name=probe-dpo-taubench slurm/train_single.sbatch
 
   # Step 8: Evaluate
   CHECKPOINT=data/checkpoints/dpo_seed42_taubench_v3/step_300 \
@@ -168,7 +168,7 @@ GPT-4o-mini as target.
 Implementation steps:
 
   # Step 1: Add OpenAIClient
-  # File: src/aapo/inference/openai_client.py
+  # File: src/probe/inference/openai_client.py
   # Mirror VLLMClient interface; wrap openai.AsyncOpenAI
   # Methods: generate(messages, **kwargs) -> str
   #          generate_with_tools(messages, tools, **kwargs) -> (str, list[ToolCall])

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-smoke
+#SBATCH --job-name=probe-smoke
 #SBATCH --partition=debug
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,13 +12,13 @@
 
 set -euo pipefail
 
-AAPO_DIR="/shared/home/kshitij.mishra/aapo"
+PROBE_DIR="/shared/home/kshitij.mishra/aapo"
 CONDA_BASE="/shared/home/kshitij.mishra/miniconda3"
 ENV_BIN="${CONDA_BASE}/envs/aapo/bin"
 HF_HOME="/shared/home/kshitij.mishra/.cache/huggingface"
 TARGET_MODEL="/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
 
-cd "$AAPO_DIR"
+cd "$PROBE_DIR"
 mkdir -p slurm/logs data/logs
 
 export HF_HOME="${HF_HOME}"
@@ -27,7 +27,7 @@ export TRANSFORMERS_CACHE="${HF_HOME}/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
-echo "=== AAPO Smoke Test — tau-bench | Job=$SLURM_JOB_ID | $(date) ==="
+echo "=== PROBE Smoke Test — tau-bench | Job=$SLURM_JOB_ID | $(date) ==="
 
 # vLLM server on GPU 0 (only GPU needed — smoke test uses ScriptedAuditor)
 VLLM_LOG="slurm/logs/vllm_smoke_${SLURM_JOB_ID}.log"

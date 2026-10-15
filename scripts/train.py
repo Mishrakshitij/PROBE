@@ -17,22 +17,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.config import load_config
-from aapo.environment.database import FlightDB
-from aapo.environment.tools import ToolRegistry
-from aapo.environment.policies import PolicyRegistry
-from aapo.environment.target_agent import TargetAgent
-from aapo.environment.logger import InteractionLogger
-from aapo.auditor.model import AuditorPolicy
-from aapo.reward.attribution import TurnRewardAttributor
-from aapo.reward.judge import LLMJudge
-from aapo.reward.novelty import NoveltyScorer
-from aapo.reward.composite import CompositeReward
-from aapo.replay.buffer import ReplayBuffer
-from aapo.training.curriculum import CurriculumScheduler
-from aapo.training.loop import TrainingLoop
-from aapo.training.logger import TrainingLogger
-from aapo.inference.model_loader import load_inference_backend, load_auditor_config, load_models_config
+from probe.config import load_config
+from probe.environment.database import FlightDB
+from probe.environment.tools import ToolRegistry
+from probe.environment.policies import PolicyRegistry
+from probe.environment.target_agent import TargetAgent
+from probe.environment.logger import InteractionLogger
+from probe.auditor.model import AuditorPolicy
+from probe.reward.attribution import TurnRewardAttributor
+from probe.reward.judge import LLMJudge
+from probe.reward.novelty import NoveltyScorer
+from probe.reward.composite import CompositeReward
+from probe.replay.buffer import ReplayBuffer
+from probe.training.curriculum import CurriculumScheduler
+from probe.training.loop import TrainingLoop
+from probe.training.logger import TrainingLogger
+from probe.inference.model_loader import load_inference_backend, load_auditor_config, load_models_config
 
 
 def _build_skyassist_env(args, target_client):
@@ -56,13 +56,13 @@ def _build_skyassist_env(args, target_client):
 
 def _build_tau_bench_env(args, target_client):
     """Build the tau-bench airline environment."""
-    from aapo.environment.tau_bench_target import TauBenchTarget, TauBenchEpisodeRunner
-    from aapo.reward.verifiers_taubench import (
+    from probe.environment.tau_bench_target import TauBenchTarget, TauBenchEpisodeRunner
+    from probe.reward.verifiers_taubench import (
         ALL_TB_VERIFIERS, TB_HYBRID_POLICY_IDS, TB_POLICY_SPECS,
         make_taubench_policy_registry,
     )
-    from aapo.auditor.scenarios import ScenarioPool
-    from aapo.reward.novelty import NoveltyScorer
+    from probe.auditor.scenarios import ScenarioPool
+    from probe.reward.novelty import NoveltyScorer
 
     tb_path = args.tau_bench_path
     target = TauBenchTarget(
@@ -85,9 +85,9 @@ def _build_tau_bench_env(args, target_client):
 
     scenario_pool = ScenarioPool.from_tau_bench(tau_bench_path=tb_path, seed=42)
     if len(scenario_pool) <= 27:  # from_tau_bench returned empty, fell back to static
-        print("  WARNING: tau-bench scenario pool empty — using static AAPO scenarios")
+        print("  WARNING: tau-bench scenario pool empty — using static PROBE scenarios")
 
-    from aapo.environment.logger import InteractionLogger
+    from probe.environment.logger import InteractionLogger
     episode_runner = TauBenchEpisodeRunner(
         target=target,
         scenario_pool=scenario_pool,
@@ -98,7 +98,7 @@ def _build_tau_bench_env(args, target_client):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train AAPO auditor")
+    parser = argparse.ArgumentParser(description="Train PROBE auditor")
     parser.add_argument("--method", choices=["grpo", "dpo", "gflownet"], default="grpo")
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
@@ -118,7 +118,7 @@ def main():
     parser.add_argument("--run-name", type=str, default=None,
                         help="Run name for logging and wandb")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
-    parser.add_argument("--wandb-project", type=str, default="aapo",
+    parser.add_argument("--wandb-project", type=str, default="probe",
                         help="wandb project name")
     parser.add_argument("--print-every", type=int, default=1,
                         help="Print step metrics every N steps")
@@ -198,7 +198,7 @@ def main():
 
     proximity = None
     if args.env == "tau_bench":
-        from aapo.reward.proximity_taubench import ProximityScorer
+        from probe.reward.proximity_taubench import ProximityScorer
         proximity = ProximityScorer(fraction=0.20)
 
     reward = CompositeReward(
@@ -222,7 +222,7 @@ def main():
 
     # Training logger
     log_dir = args.log_dir or f"data/logs/{args.method}_seed{args.seed}"
-    run_name = args.run_name or f"aapo-{args.method}-seed{args.seed}"
+    run_name = args.run_name or f"probe-{args.method}-seed{args.seed}"
     training_logger = TrainingLogger(
         log_dir=log_dir,
         run_name=run_name,

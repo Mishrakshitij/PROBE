@@ -1,6 +1,6 @@
-"""Wraps tau-bench's MockAirlineDomainEnv as an AAPO target agent.
+"""Wraps tau-bench's MockAirlineDomainEnv as an PROBE target agent.
 
-The AAPO auditor completely replaces tau-bench's LLM user simulator.
+The PROBE auditor completely replaces tau-bench's LLM user simulator.
 This module provides:
 
   TauBenchTarget   — target agent backed by tau-bench's airline env;
@@ -31,9 +31,9 @@ from ..trajectory.episode_runner import EpisodeRunner, AuditorProtocol
 class _NullUserSim:
     """Drop-in replacement for tau-bench's LLMUserSimulationEnv.
 
-    The AAPO auditor generates all user turns, so the user sim must never
+    The PROBE auditor generates all user turns, so the user sim must never
     make LLM calls.  reset() returns the task instruction verbatim;
-    step() returns the stop marker (never called in normal AAPO flow).
+    step() returns the stop marker (never called in normal PROBE flow).
     """
 
     def reset(self, instruction: str | None = None) -> str:

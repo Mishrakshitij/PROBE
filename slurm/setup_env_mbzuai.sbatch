@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-setup
+#SBATCH --job-name=probe-setup
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,17 +12,17 @@
 
 set -euo pipefail
 
-AAPO_DIR="/shared/home/kshitij.mishra/aapo"
+PROBE_DIR="/shared/home/kshitij.mishra/aapo"
 CONDA_BASE="/shared/home/kshitij.mishra/miniconda3"
-ENV_NAME="aapo"
+ENV_NAME="probe"
 ENV_BIN="${CONDA_BASE}/envs/${ENV_NAME}/bin"
 HF_HOME="/shared/home/kshitij.mishra/.cache/huggingface"
-VENDOR_DIR="${AAPO_DIR}/vendor"
+VENDOR_DIR="${PROBE_DIR}/vendor"
 
-cd "$AAPO_DIR"
+cd "$PROBE_DIR"
 mkdir -p slurm/logs "${HF_HOME}" "${VENDOR_DIR}"
 
-echo "=== AAPO Environment Setup | Job=$SLURM_JOB_ID | $(date) ==="
+echo "=== PROBE Environment Setup | Job=$SLURM_JOB_ID | $(date) ==="
 
 # ── 1. Create conda env if it doesn't exist ───────────────────────────
 if [ ! -d "${CONDA_BASE}/envs/${ENV_NAME}" ]; then
@@ -38,13 +38,13 @@ echo "[2/6] Installing PyTorch 2.10.0+cu128 + torchvision (Blackwell/cc12.x supp
     torch==2.10.0 torchvision \
     --index-url https://download.pytorch.org/whl/cu128
 
-# ── 3. Install AAPO dependencies ──────────────────────────────────────
+# ── 3. Install PROBE dependencies ──────────────────────────────────────
 # Install vllm first; it pins tokenizers>=0.22. Then force transformers>=4.51
 # which removed the <0.22 upper bound on tokenizers.
 echo "[3/6] Installing vllm..."
 "${ENV_BIN}/pip" install --quiet "vllm>=0.4"
 
-echo "[3/6] Installing remaining AAPO dependencies..."
+echo "[3/6] Installing remaining PROBE dependencies..."
 "${ENV_BIN}/pip" install --quiet \
     accelerate \
     "peft>=0.7" \
@@ -81,7 +81,7 @@ if [ ! -d "${VENDOR_DIR}/tau-bench" ]; then
     git clone https://github.com/sierra-research/tau-bench "${VENDOR_DIR}/tau-bench"
 else
     echo "  tau-bench already cloned"
-    cd "${VENDOR_DIR}/tau-bench" && git pull --quiet && cd "$AAPO_DIR"
+    cd "${VENDOR_DIR}/tau-bench" && git pull --quiet && cd "$PROBE_DIR"
 fi
 "${ENV_BIN}/pip" install --quiet -e "${VENDOR_DIR}/tau-bench"
 echo "  tau-bench installed"

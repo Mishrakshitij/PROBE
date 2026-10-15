@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-fix-torch
+#SBATCH --job-name=probe-fix-torch
 #SBATCH --partition=debug
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

@@ -5,8 +5,8 @@ import tempfile
 
 import pytest
 
-from aapo.environment.database import FlightDB
-from aapo.environment.seed import DataGenerator, GeneratorConfig
+from probe.environment.database import FlightDB
+from probe.environment.seed import DataGenerator, GeneratorConfig
 
 
 @pytest.fixture

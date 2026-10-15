@@ -59,7 +59,7 @@ class ReportGenerator:
         d = report["diversity"]
 
         print("=" * 60)
-        print("AAPO EVALUATION REPORT")
+        print("PROBE EVALUATION REPORT")
         print("=" * 60)
         print(f"Episodes:            {s['total_episodes']}")
         print(f"Total violations:    {s['total_violations']}")

@@ -2,8 +2,8 @@
 
 import pytest
 
-from aapo.types import Episode, Turn, Role, ToolCall
-from aapo.trajectory.episode_runner import EpisodeRunner
+from probe.types import Episode, Turn, Role, ToolCall
+from probe.trajectory.episode_runner import EpisodeRunner
 
 
 class MockAuditor:

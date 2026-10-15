@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-train-tb
+#SBATCH --job-name=probe-train-tb
 #SBATCH --partition=gpu
 #SBATCH --qos=normal
 #SBATCH --nodelist=mbz-titan-3
@@ -26,13 +26,13 @@ RESUME_FROM="${RESUME_FROM:-}"
 MODELS_CONFIG="${MODELS_CONFIG:-configs/models_mbzuai.yaml}"
 RUN_NAME="${METHOD}_seed${SEED}${RUN_TAG}"
 
-AAPO_DIR="/shared/home/kshitij.mishra/aapo"
+PROBE_DIR="/shared/home/kshitij.mishra/aapo"
 CONDA_BASE="/shared/home/kshitij.mishra/miniconda3"
 ENV_BIN="${CONDA_BASE}/envs/aapo/bin"
 HF_HOME="/shared/home/kshitij.mishra/.cache/huggingface"
 TARGET_MODEL="/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
 
-cd "$AAPO_DIR"
+cd "$PROBE_DIR"
 mkdir -p slurm/logs data/logs "data/checkpoints/${RUN_NAME}"
 
 export HF_HOME="${HF_HOME}"
@@ -41,20 +41,20 @@ export TRANSFORMERS_CACHE="${HF_HOME}/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
-echo "=== AAPO Training — ${METHOD^^} tau-bench | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED Run=$RUN_NAME | $(date) ==="
+echo "=== PROBE Training — ${METHOD^^} tau-bench | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED Run=$RUN_NAME | $(date) ==="
 
 # Unique port per job to avoid collisions when multiple jobs share a node
-AAPO_SERVER_PORT=$((8001 + SLURM_JOB_ID % 1000))
-export AAPO_SERVER_PORT
+PROBE_SERVER_PORT=$((8001 + SLURM_JOB_ID % 1000))
+export PROBE_SERVER_PORT
 
 # GPU 0 = vLLM target+judge (shared server)  |  GPU 1 = auditor (transformers+LoRA)
 VLLM_LOG="slurm/logs/vllm_${RUN_NAME}_${SLURM_JOB_ID}.log"
-echo "[1/2] Starting SGLang server ($TARGET_MODEL) on GPU 0 port $AAPO_SERVER_PORT..."
+echo "[1/2] Starting SGLang server ($TARGET_MODEL) on GPU 0 port $PROBE_SERVER_PORT..."
 VLLM_PID=$(bash slurm/helpers/start_vllm_mbzuai.sh \
-    "$TARGET_MODEL" 0 "$AAPO_SERVER_PORT" "$VLLM_LOG")
+    "$TARGET_MODEL" 0 "$PROBE_SERVER_PORT" "$VLLM_LOG")
 echo "  SGLang PID=$VLLM_PID"
 
-"${ENV_BIN}/python" slurm/helpers/wait_vllm.py "$AAPO_SERVER_PORT" 600 \
+"${ENV_BIN}/python" slurm/helpers/wait_vllm.py "$PROBE_SERVER_PORT" 600 \
     || { echo "ERROR: SGLang failed — see $VLLM_LOG"; kill "$VLLM_PID" 2>/dev/null; exit 1; }
 
 echo "[2/2] Starting training (method=$METHOD, steps=$STEPS, seed=$SEED)..."

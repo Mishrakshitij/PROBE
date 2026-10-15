@@ -116,7 +116,7 @@ class EvalConfig:
 
 
 @dataclass
-class AAPOConfig:
+class PROBEConfig:
     db: DBConfig = field(default_factory=DBConfig)
     target: TargetAgentConfig = field(default_factory=TargetAgentConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
@@ -124,9 +124,9 @@ class AAPOConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
 
 
-def load_config(path: str | Path | None = None) -> AAPOConfig:
+def load_config(path: str | Path | None = None) -> PROBEConfig:
     """Load config from YAML, merging with defaults."""
-    schema = OmegaConf.structured(AAPOConfig)
+    schema = OmegaConf.structured(PROBEConfig)
     if path and Path(path).exists():
         user = OmegaConf.load(path)
         cfg = OmegaConf.merge(schema, user)

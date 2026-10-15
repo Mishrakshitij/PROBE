@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aapo"
+name = "probe"
 version = "0.1.0"
-description = "Auditing Agents for Policy-violation Observation"
+description = "Policy Rule Observation via Behavioral Exploration"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

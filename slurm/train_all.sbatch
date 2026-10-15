@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-train-all
+#SBATCH --job-name=probe-train-all
 #SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -20,22 +20,22 @@ CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-200}"
 MODELS_CONFIG="${MODELS_CONFIG:-configs/models_slurm.yaml}"
 RUN_TAG="${RUN_TAG:-}"  # e.g. "_v2" to separate from old runs
 
-# Required env vars: AAPO_HOME, AAPO_CONDA_ENV, HF_HOME
-cd "${AAPO_HOME:-$PWD}"
-export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+# Required env vars: PROBE_HOME, PROBE_CONDA_ENV, HF_HOME
+cd "${PROBE_HOME:-$PWD}"
+export PATH="${PROBE_CONDA_ENV:-/opt/conda}/bin:$PATH"
 
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
-export CUDA_HOME="${AAPO_CONDA_ENV:-/opt/conda}"
+export CUDA_HOME="${PROBE_CONDA_ENV:-/opt/conda}"
 
 mkdir -p slurm/logs data/logs data/checkpoints "$HF_HUB_CACHE"
 
 # Install perf dependencies (idempotent, fast if already cached)
 pip install --quiet liger-kernel flash-attn --no-build-isolation 2>/dev/null || true
 
-echo "AAPO Training — GRPO+DPO+GFlowNet | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED | $(date)"
+echo "PROBE Training — GRPO+DPO+GFlowNet | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED | $(date)"
 
 [ ! -f data/flights.db ] && python scripts/init_db.py --seed "$SEED"
 

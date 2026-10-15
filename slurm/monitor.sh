@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-# Quick monitor for running AAPO experiments
+# Quick monitor for running PROBE experiments
 #
 # Usage:
 #   bash slurm/monitor.sh          # Latest step from each run
@@ -16,7 +16,7 @@ MODE="${1:---status}"
 case "$MODE" in
     --status|-s)
         echo "========================================"
-        echo "AAPO Training Status"
+        echo "PROBE Training Status"
         echo "========================================"
         echo ""
         echo "SLURM Jobs:"

@@ -169,7 +169,7 @@ class TrainingLogger:
         run_name: str | None = None,
         method: str = "grpo",
         use_wandb: bool = False,
-        wandb_project: str = "aapo",
+        wandb_project: str = "probe",
         wandb_config: dict[str, Any] | None = None,
         print_every: int = 1,
     ):
@@ -196,7 +196,7 @@ class TrainingLogger:
                 import wandb
                 wandb.init(
                     project=wandb_project,
-                    name=run_name or f"aapo-{method}",
+                    name=run_name or f"probe-{method}",
                     config=wandb_config or {},
                 )
                 self._wandb = wandb

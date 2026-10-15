@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-fix-tv
+#SBATCH --job-name=probe-fix-tv
 #SBATCH --partition=debug
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

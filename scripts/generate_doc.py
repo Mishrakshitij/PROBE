@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate comprehensive AAPO documentation as a .docx file."""
+"""Generate comprehensive PROBE documentation as a .docx file."""
 
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
@@ -59,14 +59,14 @@ def add_table(headers, rows, doc=doc):
 # ============================================================
 p = doc.add_paragraph()
 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = p.add_run('\n\n\n\nAAPO')
+run = p.add_run('\n\n\n\nPROBE')
 run.font.size = Pt(36)
 run.bold = True
 run.font.color.rgb = RGBColor(0x1a, 0x47, 0x7a)
 
 p = doc.add_paragraph()
 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = p.add_run('Auditing Agents for Policy-violation Observation')
+run = p.add_run('Policy Rule Observation via Behavioral Exploration')
 run.font.size = Pt(18)
 run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
@@ -123,9 +123,9 @@ doc.add_page_break()
 # ============================================================
 doc.add_heading('1. Project Overview', level=1)
 
-doc.add_heading('What is AAPO?', level=2)
+doc.add_heading('What is PROBE?', level=2)
 doc.add_paragraph(
-    'AAPO (Auditing Agents for Policy-violation Observation) trains an adversarial auditor agent '
+    'PROBE (Policy Rule Observation via Behavioral Exploration) trains an adversarial auditor agent '
     'to automatically find policy violations in an AI flight-booking assistant. Instead of manually '
     'testing whether the assistant follows its 20 operational policies, we train a small language model '
     '(Qwen3-4B with QLoRA) to generate realistic customer conversations that expose violations in '
@@ -152,7 +152,7 @@ doc.add_paragraph(
 doc.add_heading('Why This Matters', level=2)
 doc.add_paragraph(
     'Manual red-teaming of AI agents is expensive and inconsistent. Human testers have blind spots, '
-    'fatigue, and cannot exhaustively cover all policy combinations. AAPO automates this process by '
+    'fatigue, and cannot exhaustively cover all policy combinations. PROBE automates this process by '
     'training an auditor that:'
 )
 for item in [
@@ -187,7 +187,7 @@ doc.add_heading('2. Architecture Overview', level=1)
 
 doc.add_heading('High-Level Pipeline', level=2)
 doc.add_paragraph(
-    'The AAPO system consists of five major components that interact in a loop during training:'
+    'The PROBE system consists of five major components that interact in a loop during training:'
 )
 
 add_table(
@@ -229,11 +229,11 @@ doc.add_paragraph('Total: approximately 70 Python files, 8,600 lines of code.')
 
 doc.add_heading('Directory Layout', level=2)
 add_code_block(
-    'aapo/\n'
+    'probe/\n'
     '  configs/              # YAML configuration files\n'
     '  scripts/              # Entry points (train, evaluate, init_db, etc.)\n'
     '  slurm/                # SLURM job scripts and helpers\n'
-    '  src/aapo/             # Main Python package\n'
+    '  src/probe/             # Main Python package\n'
     '    types.py            # Core dataclasses (Episode, Turn, etc.)\n'
     '    config.py           # OmegaConf config loader\n'
     '    context_window.py   # Token-budget context management\n'
@@ -286,7 +286,7 @@ doc.add_page_break()
 # 4. CORE DATA TYPES
 # ============================================================
 doc.add_heading('4. Core Data Types', level=1)
-doc.add_paragraph('All core types are defined in src/aapo/types.py.')
+doc.add_paragraph('All core types are defined in src/probe/types.py.')
 
 doc.add_heading('Episode', level=2)
 doc.add_paragraph('The central data structure. Mutable dataclass representing one complete conversation.')
@@ -1017,7 +1017,7 @@ doc.add_heading('21. How to Run', level=1)
 doc.add_heading('Prerequisites', level=2)
 add_code_block(
     '# Activate conda environment\n'
-    'conda activate aapo-env\n\n'
+    'conda activate probe-env\n\n'
     '# Install performance dependencies\n'
     'pip install liger-kernel flash-attn --no-build-isolation\n\n'
     '# Initialize the flight database\n'
@@ -1027,12 +1027,12 @@ add_code_block(
 doc.add_heading('Training (SLURM)', level=2)
 add_code_block(
     '# Single method\n'
-    'METHOD=grpo sbatch --job-name=aapo-grpo slurm/train_single.sbatch\n\n'
+    'METHOD=grpo sbatch --job-name=probe-grpo slurm/train_single.sbatch\n\n'
     '# With custom tag (for versioning)\n'
-    'METHOD=dpo RUN_TAG=_v3 sbatch --job-name=aapo-dpo-v3 slurm/train_single.sbatch\n\n'
+    'METHOD=dpo RUN_TAG=_v3 sbatch --job-name=probe-dpo-v3 slurm/train_single.sbatch\n\n'
     '# All three methods\n'
     'for m in grpo dpo gflownet; do\n'
-    '  METHOD=$m RUN_TAG=_v3 sbatch --job-name=aapo-${m}-v3 slurm/train_single.sbatch\n'
+    '  METHOD=$m RUN_TAG=_v3 sbatch --job-name=probe-${m}-v3 slurm/train_single.sbatch\n'
     'done'
 )
 
@@ -1041,7 +1041,7 @@ add_code_block(
     '# Evaluate a specific checkpoint\n'
     'CHECKPOINT=data/checkpoints/grpo_seed42_v2/step_175 \\\n'
     'EPISODES=100 MAX_TURNS=8 \\\n'
-    'sbatch --job-name=aapo-eval slurm/eval_single.sbatch\n\n'
+    'sbatch --job-name=probe-eval slurm/eval_single.sbatch\n\n'
     '# Run baselines for comparison\n'
     'python scripts/run_baseline.py --baseline B0 --episodes 100\n'
     'python scripts/run_baseline.py --baseline B2 --episodes 100'
@@ -1052,9 +1052,9 @@ add_code_block(
     '# Check job status\n'
     'squeue -u $USER\n\n'
     '# Watch training progress\n'
-    'tail -f slurm/logs/train_aapo-grpo-v3_*.out\n\n'
+    'tail -f slurm/logs/train_probe-grpo-v3_*.out\n\n'
     '# Check for errors\n'
-    'tail slurm/logs/train_aapo-grpo-v3_*.err'
+    'tail slurm/logs/train_probe-grpo-v3_*.err'
 )
 
 doc.add_page_break()

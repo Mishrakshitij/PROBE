@@ -1,10 +1,10 @@
-"""Publication-quality plotting for AAPO training and evaluation.
+"""Publication-quality plotting for PROBE training and evaluation.
 
 Uses scienceplots for Nature/IEEE style. All figures are saved as
 high-resolution PDFs suitable for paper submission.
 
 Usage:
-    from aapo.evaluation.plotting import TrainingPlotter, EvalPlotter
+    from probe.evaluation.plotting import TrainingPlotter, EvalPlotter
 
     # Training curves from JSONL logs
     plotter = TrainingPlotter.from_jsonl("data/logs/grpo_seed42/training_metrics.jsonl")

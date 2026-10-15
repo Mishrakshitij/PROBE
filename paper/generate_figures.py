@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate all publication-grade figures for the AAPO NeurIPS 2026 paper.
+"""Generate all publication-grade figures for the PROBE NeurIPS 2026 paper.
 
 Outputs PDF files to paper/figures/.
 """
@@ -19,7 +19,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE = Path("/home/salem.lahlou/kmishra/aapo")
+BASE = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE / "data" / "logs"
 EVAL_DIR = BASE / "data" / "eval"
 FIG_DIR = BASE / "paper" / "figures"

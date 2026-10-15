@@ -3,7 +3,7 @@
 Covers the 8 most tractable tau-bench airline policies as deterministic
 checks, plus stubs for 2 hybrid policies that require LLM judging.
 
-Policy IDs use the "TB-" prefix to avoid collisions with AAPO's B/S/P/O IDs.
+Policy IDs use the "TB-" prefix to avoid collisions with PROBE's B/S/P/O IDs.
 
 Reference: tau-bench wiki.md — https://github.com/sierra-research/tau-bench
 

@@ -27,12 +27,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.evaluation.plotting import TrainingPlotter, ComparisonPlotter, EvalPlotter
+from probe.evaluation.plotting import TrainingPlotter, ComparisonPlotter, EvalPlotter
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate publication-quality plots from AAPO logs"
+        description="Generate publication-quality plots from PROBE logs"
     )
     parser.add_argument(
         "--training-log", type=str, nargs="*", default=[],

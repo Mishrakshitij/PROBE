@@ -1,4 +1,4 @@
-"""Shared data types for AAPO — all frozen dataclasses."""
+"""Shared data types for PROBE — all frozen dataclasses."""
 
 from __future__ import annotations
 

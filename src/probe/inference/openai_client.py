@@ -1,6 +1,6 @@
 """OpenAI API client — mirrors VLLMClient interface for external model targets.
 
-Used for Task 2 (transfer experiments): run the trained AAPO auditor
+Used for Task 2 (transfer experiments): run the trained PROBE auditor
 against GPT-4o-mini as the target instead of the local Qwen3-30B.
 
 Set OPENAI_API_KEY env var before using, or pass api_key directly.

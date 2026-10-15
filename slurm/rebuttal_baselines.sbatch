@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-rebuttal-baseline
+#SBATCH --job-name=probe-rebuttal-baseline
 #SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos
 #SBATCH --account=cscc-users
@@ -22,21 +22,21 @@ MAX_TURNS="${MAX_TURNS:-8}"
 MODELS_CONFIG="${MODELS_CONFIG:-configs/models_slurm.yaml}"
 
 # ── Environment (defaults match this cluster's known-good setup) ──────────
-export AAPO_HOME="${AAPO_HOME:-/home/salem.lahlou/kmishra/aapo}"
-export AAPO_CONDA_ENV="${AAPO_CONDA_ENV:-/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo}"
+export PROBE_HOME="${PROBE_HOME:-/home/salem.lahlou/kmishra/aapo}"
+export PROBE_CONDA_ENV="${PROBE_CONDA_ENV:-/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo}"
 export HF_HOME="${HF_HOME:-/nfs-stor/salem.lahlou/hf_cache}"
 
-cd "$AAPO_HOME"
-export PATH="$AAPO_CONDA_ENV/bin:$PATH"
+cd "$PROBE_HOME"
+export PATH="$PROBE_CONDA_ENV/bin:$PATH"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-export CUDA_HOME="$AAPO_CONDA_ENV"
+export CUDA_HOME="$PROBE_CONDA_ENV"
 
 mkdir -p slurm/logs data/eval "$HF_HUB_CACHE"
 
-echo "AAPO Rebuttal Baseline — Baseline=$BASELINE | Episodes=$EPISODES MaxTurns=$MAX_TURNS Seed=$SEED | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
+echo "PROBE Rebuttal Baseline — Baseline=$BASELINE | Episodes=$EPISODES MaxTurns=$MAX_TURNS Seed=$SEED | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
 
 # Ensure the seed-42 database the scripts reference exists
 [ ! -f data/flights.db ] && python scripts/init_db.py --seed "$SEED"

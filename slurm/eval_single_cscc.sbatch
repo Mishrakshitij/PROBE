@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-eval
+#SBATCH --job-name=probe-eval
 #SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos
 #SBATCH --account=cscc-users
@@ -32,22 +32,22 @@ MODELS_CONFIG="${MODELS_CONFIG:-configs/models_slurm.yaml}"
 OUT_REPORT="${OUT_REPORT:-}"
 OUT_LOGDIR="${OUT_LOGDIR:-}"
 
-# Required env vars: AAPO_HOME, AAPO_CONDA_ENV, HF_HOME
-cd "${AAPO_HOME:-$PWD}"
-export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+# Required env vars: PROBE_HOME, PROBE_CONDA_ENV, HF_HOME
+cd "${PROBE_HOME:-$PWD}"
+export PATH="${PROBE_CONDA_ENV:-/opt/conda}/bin:$PATH"
 
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-export CUDA_HOME="${AAPO_CONDA_ENV:-/opt/conda}"
+export CUDA_HOME="${PROBE_CONDA_ENV:-/opt/conda}"
 
 mkdir -p slurm/logs data/eval "$HF_HUB_CACHE"
 
 pip install --quiet liger-kernel flash-attn --no-build-isolation 2>/dev/null || true
 
-echo "AAPO Eval — Checkpoint=${CHECKPOINT:-<none/zero-shot>} Tag=${TAG:-} | Episodes=$EPISODES MaxTurns=$MAX_TURNS Seed=$SEED | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
+echo "PROBE Eval — Checkpoint=${CHECKPOINT:-<none/zero-shot>} Tag=${TAG:-} | Episodes=$EPISODES MaxTurns=$MAX_TURNS Seed=$SEED | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
 
 [ ! -f data/flights.db ] && python scripts/init_db.py --seed "$SEED"
 

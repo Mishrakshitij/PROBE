@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.environment.database import FlightDB
-from aapo.environment.seed import DataGenerator, GeneratorConfig
+from probe.environment.database import FlightDB
+from probe.environment.seed import DataGenerator, GeneratorConfig
 
 
 def main():

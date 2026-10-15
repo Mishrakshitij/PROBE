@@ -28,28 +28,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.environment.database import FlightDB
-from aapo.environment.tools import ToolRegistry
-from aapo.environment.policies import PolicyRegistry
-from aapo.environment.target_agent import TargetAgent
-from aapo.environment.logger import InteractionLogger
-from aapo.reward.attribution import TurnRewardAttributor
-from aapo.reward.judge import LLMJudge
-from aapo.reward.novelty import NoveltyScorer
-from aapo.reward.composite import CompositeReward
-from aapo.replay.embedder import TrajectoryEmbedder
-from aapo.replay.cluster import ClusterManager
-from aapo.evaluation.report import ReportGenerator
-from aapo.trajectory.episode_runner import EpisodeRunner
-from aapo.auditor.scenarios import ScenarioPool
-from aapo.auditor.baselines import (
+from probe.environment.database import FlightDB
+from probe.environment.tools import ToolRegistry
+from probe.environment.policies import PolicyRegistry
+from probe.environment.target_agent import TargetAgent
+from probe.environment.logger import InteractionLogger
+from probe.reward.attribution import TurnRewardAttributor
+from probe.reward.judge import LLMJudge
+from probe.reward.novelty import NoveltyScorer
+from probe.reward.composite import CompositeReward
+from probe.replay.embedder import TrajectoryEmbedder
+from probe.replay.cluster import ClusterManager
+from probe.evaluation.report import ReportGenerator
+from probe.trajectory.episode_runner import EpisodeRunner
+from probe.auditor.scenarios import ScenarioPool
+from probe.auditor.baselines import (
     ScriptedAuditor,
     CooperativeAuditor,
     FewShotAuditor,
     SCRIPTED_CONVERSATIONS,
     build_generic_conversations,
 )
-from aapo.inference.model_loader import load_inference_backend, load_models_config
+from probe.inference.model_loader import load_inference_backend, load_models_config
 
 
 # scripted = static suite WITH oracle (1 hand-crafted attack per policy)

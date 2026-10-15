@@ -1,5 +1,5 @@
 ================================================================================
-  AAPO — Full Experimental Plan
+  PROBE — Full Experimental Plan
   Goal: Train & evaluate LLM auditors that discover policy violations
          in a flight-booking agent, comparing 3 training methods
 ================================================================================

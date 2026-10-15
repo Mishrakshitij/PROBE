@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.inference.model_loader import load_models_config
-from aapo.inference.server import launch_vllm, wait_for_ready, shutdown_vllm
+from probe.inference.model_loader import load_models_config
+from probe.inference.server import launch_vllm, wait_for_ready, shutdown_vllm
 
 
 def main():

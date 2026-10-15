@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-train
+#SBATCH --job-name=probe-train
 #SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos
 #SBATCH --account=cscc-users
@@ -30,23 +30,23 @@ BETA_START="${BETA_START:-}"
 BETA_END="${BETA_END:-}"
 
 # Required env vars (set by user before sbatch):
-#   AAPO_HOME, AAPO_CONDA_ENV, HF_HOME
-cd "${AAPO_HOME:-$PWD}"
-export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+#   PROBE_HOME, PROBE_CONDA_ENV, HF_HOME
+cd "${PROBE_HOME:-$PWD}"
+export PATH="${PROBE_CONDA_ENV:-/opt/conda}/bin:$PATH"
 
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-export CUDA_HOME="${AAPO_CONDA_ENV:-/opt/conda}"
+export CUDA_HOME="${PROBE_CONDA_ENV:-/opt/conda}"
 
 mkdir -p slurm/logs data/logs data/checkpoints "$HF_HUB_CACHE"
 
 # Install perf dependencies (idempotent, fast if already cached)
 pip install --quiet liger-kernel flash-attn --no-build-isolation 2>/dev/null || true
 
-echo "AAPO Training — ${METHOD^^} | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED Run=$RUN_NAME | $(date)"
+echo "PROBE Training — ${METHOD^^} | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST Steps=$STEPS Seed=$SEED Run=$RUN_NAME | $(date)"
 
 [ ! -f data/flights.db ] && python scripts/init_db.py --seed "$SEED"
 

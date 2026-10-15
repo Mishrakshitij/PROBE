@@ -25,11 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.auditor.model import AuditorPolicy
-from aapo.replay.embedder import TrajectoryEmbedder
-from aapo.replay.cluster import ClusterManager
-from aapo.evaluation.report import ReportGenerator
-from aapo.inference.model_loader import load_inference_backend, load_auditor_config, load_models_config
+from probe.auditor.model import AuditorPolicy
+from probe.replay.embedder import TrajectoryEmbedder
+from probe.replay.cluster import ClusterManager
+from probe.evaluation.report import ReportGenerator
+from probe.inference.model_loader import load_inference_backend, load_auditor_config, load_models_config
 
 
 def _load_checkpoint(auditor, ckpt_path: Path):
@@ -59,17 +59,17 @@ def _load_checkpoint(auditor, ckpt_path: Path):
 
 
 def _build_skyassist(args):
-    from aapo.environment.database import FlightDB
-    from aapo.environment.tools import ToolRegistry
-    from aapo.environment.policies import PolicyRegistry
-    from aapo.environment.target_agent import TargetAgent
-    from aapo.environment.logger import InteractionLogger
-    from aapo.reward.attribution import TurnRewardAttributor
-    from aapo.reward.judge import LLMJudge
-    from aapo.reward.novelty import NoveltyScorer
-    from aapo.reward.composite import CompositeReward
-    from aapo.trajectory.episode_runner import EpisodeRunner
-    from aapo.auditor.scenarios import ScenarioPool
+    from probe.environment.database import FlightDB
+    from probe.environment.tools import ToolRegistry
+    from probe.environment.policies import PolicyRegistry
+    from probe.environment.target_agent import TargetAgent
+    from probe.environment.logger import InteractionLogger
+    from probe.reward.attribution import TurnRewardAttributor
+    from probe.reward.judge import LLMJudge
+    from probe.reward.novelty import NoveltyScorer
+    from probe.reward.composite import CompositeReward
+    from probe.trajectory.episode_runner import EpisodeRunner
+    from probe.auditor.scenarios import ScenarioPool
 
     db = FlightDB(args.db_path)
     tools = ToolRegistry(db)
@@ -104,16 +104,16 @@ def _build_skyassist(args):
 
 
 def _build_tau_bench(args):
-    from aapo.environment.tau_bench_target import TauBenchTarget, TauBenchEpisodeRunner
-    from aapo.environment.logger import InteractionLogger
-    from aapo.reward.verifiers_taubench import (
+    from probe.environment.tau_bench_target import TauBenchTarget, TauBenchEpisodeRunner
+    from probe.environment.logger import InteractionLogger
+    from probe.reward.verifiers_taubench import (
         ALL_TB_VERIFIERS, TB_HYBRID_POLICY_IDS, TB_POLICY_SPECS,
         make_taubench_policy_registry,
     )
-    from aapo.reward.attribution import TurnRewardAttributor
-    from aapo.reward.novelty import NoveltyScorer
-    from aapo.reward.composite import CompositeReward
-    from aapo.auditor.scenarios import ScenarioPool
+    from probe.reward.attribution import TurnRewardAttributor
+    from probe.reward.novelty import NoveltyScorer
+    from probe.reward.composite import CompositeReward
+    from probe.auditor.scenarios import ScenarioPool
 
     target_client = load_inference_backend("target", args.models_config)
     policies = make_taubench_policy_registry()
@@ -152,7 +152,7 @@ def _build_tau_bench(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate AAPO auditor checkpoint")
+    parser = argparse.ArgumentParser(description="Evaluate PROBE auditor checkpoint")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to LoRA checkpoint directory")
     parser.add_argument("--no-adapter", action="store_true",

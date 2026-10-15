@@ -17,17 +17,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.environment.database import FlightDB
-from aapo.environment.tools import ToolRegistry
-from aapo.environment.policies import PolicyRegistry
-from aapo.environment.target_agent import TargetAgent
-from aapo.environment.logger import InteractionLogger
-from aapo.trajectory.episode_runner import EpisodeRunner
-from aapo.reward.attribution import TurnRewardAttributor
-from aapo.reward.novelty import NoveltyScorer
-from aapo.reward.composite import CompositeReward
-from aapo.inference.model_loader import load_inference_backend
-from aapo.types import Turn
+from probe.environment.database import FlightDB
+from probe.environment.tools import ToolRegistry
+from probe.environment.policies import PolicyRegistry
+from probe.environment.target_agent import TargetAgent
+from probe.environment.logger import InteractionLogger
+from probe.trajectory.episode_runner import EpisodeRunner
+from probe.reward.attribution import TurnRewardAttributor
+from probe.reward.novelty import NoveltyScorer
+from probe.reward.composite import CompositeReward
+from probe.inference.model_loader import load_inference_backend
+from probe.types import Turn
 
 
 # ── Baseline auditors ─────────────────────────────────────────────────

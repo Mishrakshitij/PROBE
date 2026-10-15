@@ -2,7 +2,7 @@
 """Smoke test: scripted episodes against the SkyAssist or tau-bench target.
 
 Usage:
-    python scripts/smoke_test.py                    # AAPO SkyAssist env
+    python scripts/smoke_test.py                    # PROBE SkyAssist env
     python scripts/smoke_test.py --env tau_bench    # tau-bench airline env
     python scripts/smoke_test.py --env tau_bench --tau-bench-path /tmp/tau-bench
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aapo.types import Turn, Role
+from probe.types import Turn, Role
 
 SKYASSIST_MESSAGES = [
     "I want to search for flights from JFK to LAX on 2026-03-15",
@@ -51,10 +51,10 @@ class ScriptedAuditor:
 
 
 def run_skyassist(args) -> int:
-    from aapo.environment.database import FlightDB
-    from aapo.environment.tools import ToolRegistry
-    from aapo.environment.target_agent import TargetAgent
-    from aapo.inference.model_loader import load_inference_backend
+    from probe.environment.database import FlightDB
+    from probe.environment.tools import ToolRegistry
+    from probe.environment.target_agent import TargetAgent
+    from probe.inference.model_loader import load_inference_backend
 
     db = FlightDB(args.db_path)
     tools = ToolRegistry(db)
@@ -100,8 +100,8 @@ def run_skyassist(args) -> int:
 
 
 def run_tau_bench(args) -> int:
-    from aapo.environment.tau_bench_target import TauBenchTarget
-    from aapo.inference.model_loader import load_inference_backend
+    from probe.environment.tau_bench_target import TauBenchTarget
+    from probe.inference.model_loader import load_inference_backend
 
     print("=" * 60)
     print("SMOKE TEST — tau-bench airline env (5 scripted turns)")
@@ -157,8 +157,8 @@ def run_tau_bench(args) -> int:
             break
 
     # Verify verifiers fire on the scripted violations
-    from aapo.reward.verifiers_taubench import ALL_TB_VERIFIERS
-    from aapo.types import Episode
+    from probe.reward.verifiers_taubench import ALL_TB_VERIFIERS
+    from probe.types import Episode
     ep = Episode(episode_id="smoke", turns=list(history))
     violations: list = []
     for turn in history:

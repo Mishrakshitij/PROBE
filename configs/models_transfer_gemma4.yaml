@@ -7,7 +7,7 @@
 # `gemma4` tool parser. Unlike gemma-3-4b, Gemma-4's chat template DOES render
 # tools, so it can actually tool-call. The judge is held FIXED at Qwen3-30B; the
 # auditor is the Qwen3-4B QLoRA DPO-V3 s300 checkpoint. Eval + auditor run in
-# AAPO_CONDA_ENV and reach the servers over HTTP, so vLLM versions may differ.
+# PROBE_CONDA_ENV and reach the servers over HTTP, so vLLM versions may differ.
 #
 # GPU layout (2x A100-40GB):
 #   GPU 0: Qwen3-30B judge   (vLLM 0.22.1, port 8001)

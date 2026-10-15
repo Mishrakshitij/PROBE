@@ -4,9 +4,9 @@ import random
 
 import pytest
 
-from aapo.types import Episode, Turn, Role, ViolationLabel, Severity, RewardBreakdown
-from aapo.training.curriculum import CurriculumScheduler
-from aapo.replay.buffer import ReplayBuffer
+from probe.types import Episode, Turn, Role, ViolationLabel, Severity, RewardBreakdown
+from probe.training.curriculum import CurriculumScheduler
+from probe.replay.buffer import ReplayBuffer
 
 
 class TestCurriculumScheduler:

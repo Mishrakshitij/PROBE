@@ -12,7 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-BASE = Path("/home/salem.lahlou/kmishra/aapo")
+BASE = Path(__file__).resolve().parent.parent
 LOG = BASE / "data" / "logs"
 OUT = BASE / "paper" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)

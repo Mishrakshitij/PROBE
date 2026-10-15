@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+export PATH="${PROBE_CONDA_ENV:-/opt/conda}/bin:$PATH"
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
@@ -24,9 +24,9 @@ GPU_UTIL="${7:-0.80}"
 # through to --quantization (e.g. bitsandbytes, fp8).
 QUANT="${9:-bitsandbytes}"
 # Optional: serve with a DIFFERENT conda env's vLLM (e.g. haoyi2_vllm's vLLM
-# 0.22.1 which supports Gemma-4, while the eval/auditor stay in AAPO_CONDA_ENV).
+# 0.22.1 which supports Gemma-4, while the eval/auditor stay in PROBE_CONDA_ENV).
 # That newer vLLM links its OWN CUDA runtime (nvidia/*/lib wheels, incl. cu13);
-# the caller's CUDA_HOME/LD_LIBRARY_PATH point at AAPO_CONDA_ENV (CUDA 12) and
+# the caller's CUDA_HOME/LD_LIBRARY_PATH point at PROBE_CONDA_ENV (CUDA 12) and
 # would shadow it, so rebuild the launch env from PYENV's wheels.
 PYENV="${8:-}"
 VLLM_PY="python"
@@ -35,7 +35,7 @@ if [ -n "$PYENV" ]; then
     NVLIBS=$(ls -d "$PYENV"/lib/python3.11/site-packages/nvidia/*/lib 2>/dev/null | tr '\n' ':')
     export LD_LIBRARY_PATH="${NVLIBS}${PYENV}/lib:${LD_LIBRARY_PATH:-}"
     export PATH="$PYENV/bin:$PATH"
-    unset CUDA_HOME   # use the vLLM env's bundled CUDA wheels, not AAPO_CONDA_ENV's
+    unset CUDA_HOME   # use the vLLM env's bundled CUDA wheels, not PROBE_CONDA_ENV's
     # vLLM 0.22's flashinfer sampler JIT-compiles CUDA kernels with ninja at
     # startup; with CUDA_HOME unset (above) that build fails on this cluster
     # ("run_ninja ... non-zero exit status 1" -> "EngineCore failed to start").

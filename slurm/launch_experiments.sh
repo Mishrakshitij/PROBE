@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-# AAPO Experiment Launcher
+# PROBE Experiment Launcher
 #
 # Submits all experiment phases to SLURM.
 #
@@ -33,7 +33,7 @@ submit() {
 }
 
 echo "========================================"
-echo "AAPO Experiment Launcher"
+echo "PROBE Experiment Launcher"
 echo "========================================"
 echo ""
 
@@ -52,27 +52,27 @@ if [[ "$PHASE" == "--all" || "$PHASE" == "--phase" && "${2:-}" == "4" || "$PHASE
     echo "  2 GPUs each, ~24 hours each"
 
     submit "A1: No EMA" \
-        sbatch --job-name=aapo-A1-no-ema \
+        sbatch --job-name=probe-A1-no-ema \
         --export=METHOD=grpo,STEPS=1000,SEED=42,RUN_NAME=ablation_no_ema \
         slurm/train_single.sbatch
 
     submit "A2: No curriculum" \
-        sbatch --job-name=aapo-A2-no-curriculum \
+        sbatch --job-name=probe-A2-no-curriculum \
         --export=METHOD=grpo,STEPS=1000,SEED=42,RUN_NAME=ablation_no_curriculum \
         slurm/train_single.sbatch
 
     submit "A3: No novelty" \
-        sbatch --job-name=aapo-A3-no-novelty \
+        sbatch --job-name=probe-A3-no-novelty \
         --export=METHOD=grpo,STEPS=1000,SEED=42,RUN_NAME=ablation_no_novelty \
         slurm/train_single.sbatch
 
     submit "A4: No plausibility" \
-        sbatch --job-name=aapo-A4-no-plaus \
+        sbatch --job-name=probe-A4-no-plaus \
         --export=METHOD=grpo,STEPS=1000,SEED=42,RUN_NAME=ablation_no_plaus \
         slurm/train_single.sbatch
 
     submit "A5: No progress" \
-        sbatch --job-name=aapo-A5-no-progress \
+        sbatch --job-name=probe-A5-no-progress \
         --export=METHOD=grpo,STEPS=1000,SEED=42,RUN_NAME=ablation_no_progress \
         slurm/train_single.sbatch
     echo ""
@@ -84,12 +84,12 @@ if [[ "$PHASE" == "--all" || "$PHASE" == "--phase" && "${2:-}" == "5" || "$PHASE
     echo "  2 GPUs each, ~48 hours each"
 
     submit "GRPO seed=123" \
-        sbatch --job-name=aapo-grpo-s123 \
+        sbatch --job-name=probe-grpo-s123 \
         --export=METHOD=grpo,STEPS=2000,SEED=123 \
         slurm/train_single.sbatch
 
     submit "GRPO seed=456" \
-        sbatch --job-name=aapo-grpo-s456 \
+        sbatch --job-name=probe-grpo-s456 \
         --export=METHOD=grpo,STEPS=2000,SEED=456 \
         slurm/train_single.sbatch
     echo ""

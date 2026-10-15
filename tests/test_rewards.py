@@ -2,10 +2,10 @@
 
 import pytest
 
-from aapo.types import Episode, Turn, Role, RewardBreakdown, ViolationLabel, Severity
-from aapo.reward.shaping import ProgressShaper
-from aapo.reward.novelty import NoveltyScorer
-from aapo.reward.plausibility import PlausibilityScorer
+from probe.types import Episode, Turn, Role, RewardBreakdown, ViolationLabel, Severity
+from probe.reward.shaping import ProgressShaper
+from probe.reward.novelty import NoveltyScorer
+from probe.reward.plausibility import PlausibilityScorer
 
 
 def _episode(turns):

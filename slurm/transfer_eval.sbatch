@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=aapo-transfer-llama
+#SBATCH --job-name=probe-transfer-llama
 #SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos
 #SBATCH --account=cscc-users
@@ -24,7 +24,7 @@ TARGET_MODEL="${TARGET_MODEL:-NousResearch/Meta-Llama-3.1-8B-Instruct}"
 TARGET_PARSER="${TARGET_PARSER:-llama3_json}"
 OUT_TAG="${OUT_TAG:-transfer_llama}"
 # Per-server conda env + quantization overrides. The judge (Qwen-30B) stays in
-# AAPO_CONDA_ENV (its vLLM 0.16 + working bitsandbytes handle the 30B). A newer
+# PROBE_CONDA_ENV (its vLLM 0.16 + working bitsandbytes handle the 30B). A newer
 # target (e.g. Gemma-4) is served from TARGET_VLLM_ENV (haoyi2_vllm = vLLM
 # 0.22.1); that env's bitsandbytes is too old for its Gemma-4 loader, so serve
 # the target unquantized (TARGET_QUANT=none, bump TARGET_UTIL). Servers are
@@ -35,21 +35,21 @@ TARGET_VLLM_ENV="${TARGET_VLLM_ENV:-$VLLM_ENV}"
 TARGET_QUANT="${TARGET_QUANT:-bitsandbytes}"
 TARGET_UTIL="${TARGET_UTIL:-0.45}"
 
-export AAPO_HOME="${AAPO_HOME:-/home/salem.lahlou/kmishra/aapo}"
-export AAPO_CONDA_ENV="${AAPO_CONDA_ENV:-/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo}"
+export PROBE_HOME="${PROBE_HOME:-/home/salem.lahlou/kmishra/aapo}"
+export PROBE_CONDA_ENV="${PROBE_CONDA_ENV:-/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo}"
 export HF_HOME="${HF_HOME:-/nfs-stor/salem.lahlou/hf_cache}"
 
-cd "$AAPO_HOME"
-export PATH="$AAPO_CONDA_ENV/bin:$PATH"
+cd "$PROBE_HOME"
+export PATH="$PROBE_CONDA_ENV/bin:$PATH"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"
 export PYTHONUNBUFFERED=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-export CUDA_HOME="$AAPO_CONDA_ENV"
+export CUDA_HOME="$PROBE_CONDA_ENV"
 
 mkdir -p slurm/logs data/eval "$HF_HUB_CACHE"
 
-echo "AAPO Transfer Eval — auditor=$CHECKPOINT vs target=$TARGET_MODEL | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
+echo "PROBE Transfer Eval — auditor=$CHECKPOINT vs target=$TARGET_MODEL | Job=$SLURM_JOB_ID Node=$SLURM_NODELIST | $(date)"
 
 [ ! -f data/flights.db ] && python scripts/init_db.py --seed "$SEED"
 

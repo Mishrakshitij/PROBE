@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate AAPO_Experiment_Plan.docx — comprehensive plan + codebase docs.
 
-This document is intended for a teammate to replicate the AAPO project on a
+This document is intended for a teammate to replicate the PROBE project on a
 second cluster, running planned experiments in parallel.
 """
 
@@ -66,7 +66,7 @@ def bullet(text):
 # =============================================================
 p = doc.add_paragraph()
 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = p.add_run('\n\n\n\nAAPO')
+run = p.add_run('\n\n\n\nPROBE')
 run.font.size = Pt(36); run.bold = True
 run.font.color.rgb = RGBColor(0x1a, 0x47, 0x7a)
 
@@ -120,7 +120,7 @@ doc.add_heading('1. Project Goals and Current Status', level=1)
 
 doc.add_heading('What We Are Building', level=2)
 doc.add_paragraph(
-    'AAPO trains a small adversarial language model (Qwen3-4B with QLoRA) to play '
+    'PROBE trains a small adversarial language model (Qwen3-4B with QLoRA) to play '
     'the role of a customer and find policy violations in a tool-augmented LLM agent '
     '(Qwen3-30B target). The auditor is optimized via reinforcement learning with three '
     'algorithms (GRPO, DPO, GFlowNet) and a curriculum that gradually extends conversation '
@@ -170,15 +170,15 @@ doc.add_heading('2. Repository Setup (any cluster)', level=1)
 
 doc.add_heading('Clone the Repo', level=2)
 code('git clone https://github.com/Mishrakshitij/AAPO.git\n'
-     'cd AAPO\n'
+     'cd PROBE\n'
      'git checkout main')
 
 doc.add_heading('Conda Environment', level=2)
 doc.add_paragraph('Python 3.11. The conda environment is at:')
 code('/nfs-stor/salem.lahlou/conda_envs/kshitij-aapo')
 doc.add_paragraph('On a new cluster, recreate it with:')
-code('conda create -n aapo python=3.11 -y\n'
-     'conda activate aapo\n'
+code('conda create -n probe python=3.11 -y\n'
+     'conda activate probe\n'
      'pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121\n'
      'pip install transformers accelerate peft bitsandbytes vllm\n'
      'pip install datasets sentence-transformers hdbscan scikit-learn\n'
@@ -211,7 +211,7 @@ doc.add_heading('3. Codebase Walkthrough', level=1)
 
 doc.add_heading('Top-level Layout', level=2)
 code(
-    'aapo/\n'
+    'probe/\n'
     '  configs/                       YAML configuration files\n'
     '    models_slurm.yaml             Model paths, GPUs, ports for SLURM\n'
     '    reward.yaml                   Reward weights and schedule\n'
@@ -226,7 +226,7 @@ code(
     '    run_baseline.py               B0 random and B2 zero-shot baselines\n'
     '    plot_results.py               Generate paper figures\n'
     '\n'
-    '  src/aapo/                      Main Python package\n'
+    '  src/probe/                      Main Python package\n'
     '    types.py                      Core dataclasses\n'
     '    config.py                     Config loader\n'
     '    auditor/                      Auditor model + scenarios + EMA\n'
@@ -257,22 +257,22 @@ doc.add_heading('Critical Source Files', level=2)
 table(
     ['Path', 'Lines', 'Purpose'],
     [
-        ['src/aapo/auditor/model.py', 320, 'AuditorPolicy: Qwen3-4B + QLoRA wrapper'],
-        ['src/aapo/auditor/scenarios.py', 280, 'ScenarioPool: 27 scenarios + DB-aware generation'],
-        ['src/aapo/environment/target_agent.py', 155, 'TargetAgent: SkyAssist with 8 tools'],
-        ['src/aapo/environment/policies.py', 106, '20 policies (B1-O4)'],
-        ['src/aapo/reward/composite.py', 165, 'CompositeReward with weight schedule, normalization'],
-        ['src/aapo/reward/attribution.py', 85, 'Verifier dispatch + diminishing returns'],
-        ['src/aapo/reward/verifiers.py', 546, '20 programmatic policy verifiers'],
-        ['src/aapo/reward/plausibility.py', 130, 'Plausibility scoring (V3 with anti-fab)'],
-        ['src/aapo/reward/shaping.py', 145, 'Progress shaping (V3 3-tier)'],
-        ['src/aapo/training/loop.py', 365, 'Main training orchestrator'],
-        ['src/aapo/training/grpo.py', 152, 'GRPO updater'],
-        ['src/aapo/training/dpo.py', 138, 'DPO updater'],
-        ['src/aapo/training/gflownet.py', 122, 'GFlowNet TB updater'],
-        ['src/aapo/training/curriculum.py', 95, 'k_max stages, advancement logic'],
-        ['src/aapo/trajectory/episode_runner.py', 130, 'Full episode + loop detection'],
-        ['src/aapo/trajectory/prefix_runner.py', 100, 'Shared-prefix candidate sampling'],
+        ['src/probe/auditor/model.py', 320, 'AuditorPolicy: Qwen3-4B + QLoRA wrapper'],
+        ['src/probe/auditor/scenarios.py', 280, 'ScenarioPool: 27 scenarios + DB-aware generation'],
+        ['src/probe/environment/target_agent.py', 155, 'TargetAgent: SkyAssist with 8 tools'],
+        ['src/probe/environment/policies.py', 106, '20 policies (B1-O4)'],
+        ['src/probe/reward/composite.py', 165, 'CompositeReward with weight schedule, normalization'],
+        ['src/probe/reward/attribution.py', 85, 'Verifier dispatch + diminishing returns'],
+        ['src/probe/reward/verifiers.py', 546, '20 programmatic policy verifiers'],
+        ['src/probe/reward/plausibility.py', 130, 'Plausibility scoring (V3 with anti-fab)'],
+        ['src/probe/reward/shaping.py', 145, 'Progress shaping (V3 3-tier)'],
+        ['src/probe/training/loop.py', 365, 'Main training orchestrator'],
+        ['src/probe/training/grpo.py', 152, 'GRPO updater'],
+        ['src/probe/training/dpo.py', 138, 'DPO updater'],
+        ['src/probe/training/gflownet.py', 122, 'GFlowNet TB updater'],
+        ['src/probe/training/curriculum.py', 95, 'k_max stages, advancement logic'],
+        ['src/probe/trajectory/episode_runner.py', 130, 'Full episode + loop detection'],
+        ['src/probe/trajectory/prefix_runner.py', 100, 'Shared-prefix candidate sampling'],
     ]
 )
 
@@ -452,7 +452,7 @@ doc.add_paragraph('Decision gate: if V3 shows clear gains over V2, proceed with 
 
 doc.add_heading('Exp B: GRPO KL Audit', level=3)
 doc.add_paragraph(
-    'Read src/aapo/training/grpo.py. Verify the KL term against ref policy is being computed. '
+    'Read src/probe/training/grpo.py. Verify the KL term against ref policy is being computed. '
     'kl_loss=0.0000 in current logs is suspicious. Likely fixes: enforce ref_policy is passed '
     'in update(), confirm kl_coeff is applied. Re-run a short GRPO V3 (50 steps) with kl_coeff=0.1 '
     'and lr=5e-6 (matching DPO).'
@@ -598,7 +598,7 @@ code('#!/bin/bash\n'
      '#SBATCH --mem=64G\n'
      '#SBATCH --cpus-per-task=32\n'
      '\n'
-     'cd /your/path/to/aapo\n'
+     'cd /your/path/to/probe\n'
      'export PATH="/your/conda/bin:$PATH"\n'
      'export HF_HOME=/your/hf_cache\n'
      'export PYTHONUNBUFFERED=1\n'
@@ -649,7 +649,7 @@ table(
 doc.add_heading('Submission Commands (template)', level=2)
 code('# Training on any cluster\n'
      'METHOD=dpo SEED=42 RUN_TAG=_v3_seed42 \\\n'
-     '  sbatch --job-name=aapo-dpo-v3-s42 slurm/train_single.sbatch\n'
+     '  sbatch --job-name=probe-dpo-v3-s42 slurm/train_single.sbatch\n'
      '\n'
      '# Evaluation\n'
      'CHECKPOINT=data/checkpoints/dpo_seed42_v3_seed42/step_300 \\\n'
@@ -659,7 +659,7 @@ code('# Training on any cluster\n'
      'for seed in 42 123 456; do\n'
      '  for method in grpo dpo gflownet; do\n'
      '    METHOD=$method SEED=$seed RUN_TAG=_v3_s$seed \\\n'
-     '      sbatch --job-name=aapo-$method-v3-s$seed slurm/train_single.sbatch\n'
+     '      sbatch --job-name=probe-$method-v3-s$seed slurm/train_single.sbatch\n'
      '  done\n'
      'done')
 
@@ -671,7 +671,7 @@ doc.add_page_break()
 doc.add_heading('10. Code Modifications Needed Before Each Experiment', level=1)
 
 doc.add_heading('Exp B (GRPO KL Audit)', level=2)
-doc.add_paragraph('File: src/aapo/training/grpo.py')
+doc.add_paragraph('File: src/probe/training/grpo.py')
 for item in [
     'Verify update() receives ref_policy parameter and passes it to per-candidate KL computation',
     'Confirm kl_coeff * kl_loss is added to total loss (currently kl_loss=0.0000)',
@@ -708,7 +708,7 @@ for item in [
 
 doc.add_heading('Exp G (Transfer to GPT-4o-mini)', level=2)
 doc.add_paragraph(
-    'File: src/aapo/inference/openai_client.py (new file). Implement OpenAIClient that follows '
+    'File: src/probe/inference/openai_client.py (new file). Implement OpenAIClient that follows '
     'InferenceBackend protocol from vllm_client.py. Then add to configs/models_transfer.yaml:'
 )
 code('models:\n'
@@ -726,12 +726,12 @@ doc.add_paragraph(
     'Major refactor; consider doing this on a feature branch (git checkout -b feature/tau-bench).'
 )
 for item in [
-    'Replace src/aapo/environment/database.py with tau-bench airline environment loader',
-    'Replace src/aapo/environment/tools.py with tau-bench tool definitions',
-    'Replace src/aapo/environment/policies.py with tau-bench policy taxonomy',
-    'Adapt src/aapo/environment/target_agent.py to use tau-bench target (or call their API)',
-    'Update src/aapo/auditor/scenarios.py: ScenarioPool.from_tau_bench()',
-    'Update src/aapo/reward/verifiers.py: rewrite verifiers for tau-bench schema',
+    'Replace src/probe/environment/database.py with tau-bench airline environment loader',
+    'Replace src/probe/environment/tools.py with tau-bench tool definitions',
+    'Replace src/probe/environment/policies.py with tau-bench policy taxonomy',
+    'Adapt src/probe/environment/target_agent.py to use tau-bench target (or call their API)',
+    'Update src/probe/auditor/scenarios.py: ScenarioPool.from_tau_bench()',
+    'Update src/probe/reward/verifiers.py: rewrite verifiers for tau-bench schema',
     'Verify reward components still make sense; some adaptations likely needed for tau-bench reward',
 ]:
     bullet(item)

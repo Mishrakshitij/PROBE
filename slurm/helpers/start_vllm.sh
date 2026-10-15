@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-export PATH="${AAPO_CONDA_ENV:-/opt/conda}/bin:$PATH"
+export PATH="${PROBE_CONDA_ENV:-/opt/conda}/bin:$PATH"
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/hub"

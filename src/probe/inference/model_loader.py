@@ -46,7 +46,7 @@ def load_inference_backend(
 
     if backend == "vllm":
         import os
-        port = int(os.environ.get("AAPO_SERVER_PORT", model_cfg.get("port", 8001)))
+        port = int(os.environ.get("PROBE_SERVER_PORT", model_cfg.get("port", 8001)))
         base_url = override_base_url or f"http://localhost:{port}/v1"
         return VLLMClient(
             base_url=base_url,

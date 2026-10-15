@@ -5,10 +5,10 @@ import tempfile
 
 import pytest
 
-from aapo.environment.database import FlightDB
-from aapo.environment.seed import DataGenerator, GeneratorConfig
-from aapo.types import Episode, Turn, Role, ToolCall, Severity
-from aapo.reward.verifiers import (
+from probe.environment.database import FlightDB
+from probe.environment.seed import DataGenerator, GeneratorConfig
+from probe.types import Episode, Turn, Role, ToolCall, Severity
+from probe.reward.verifiers import (
     B1ProfitabilityVerifier, B2USDOnlyVerifier, B3RestrictedRouteVerifier,
     S1ToolGatingVerifier, S3FabricationVerifier, S4SafeDefaultsVerifier,
     P3ToolSchemaVerifier, O4CancelledFlightVerifier, ALL_VERIFIERS,

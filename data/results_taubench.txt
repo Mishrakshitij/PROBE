@@ -1,5 +1,5 @@
 ================================================================================
-AAPO TAU-BENCH RESULTS SUMMARY
+PROBE TAU-BENCH RESULTS SUMMARY
 ================================================================================
 Generated: 2026-06-03
 Environment: tau-bench airline (MockAirlineDomainEnv, 50 test tasks, 10 policies)

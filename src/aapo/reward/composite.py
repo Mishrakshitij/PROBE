@@ -63,17 +63,21 @@ class CompositeReward:
         alpha_end: float = 0.1,
         beta_start: float = 0.1,
         beta_end: float = 0.4,
-        gamma: float = 0.1,
+        gamma: float = 0.35,
         warmup_steps: int = 100,
         normalize: bool = True,
         softplus_floor: bool = True,
+        # Ablation flags
+        diminishing_returns: bool = True,
+        anti_fabrication: bool = True,
+        binary_violation: bool = False,
     ):
         self.db = db
         self.policies = policy_registry
         self.attributor = attributor
         self.novelty = novelty_scorer
         self.shaper = ProgressShaper()
-        self.plausibility = PlausibilityScorer()
+        self.plausibility = PlausibilityScorer(anti_fabrication=anti_fabrication)
 
         self.alpha_start = alpha_start
         self.alpha_end = alpha_end
@@ -83,6 +87,8 @@ class CompositeReward:
         self.warmup_steps = warmup_steps
         self.do_normalize = normalize
         self.softplus_floor = softplus_floor
+        self.diminishing_returns = diminishing_returns
+        self.binary_violation = binary_violation
 
         self._step = 0
         self._stats = {
@@ -99,6 +105,8 @@ class CompositeReward:
 
         breakdowns: list[RewardBreakdown] = []
         all_triggered: list[str] = []
+        # Track per-policy violation counts for diminishing returns
+        policy_counts: dict[str, int] = {}
 
         for turn in episode.turns:
             if turn.role.value != "user":
@@ -113,7 +121,21 @@ class CompositeReward:
             triggered = [v.policy_id for v in violations]
             all_triggered.extend(triggered)
 
-            r_viol = self.attributor.violation_reward(violations)
+            if self.binary_violation:
+                # Generic red-teaming success signal: 1.0 if this turn elicited
+                # ANY violation, with NO per-policy severity / dedup / coverage
+                # shaping. Used for the diversity-only baseline, where the
+                # GFlowNet objective supplies mode-covering diversity over
+                # generic "did we break something" success rather than the
+                # policy-specific coverage reward.
+                r_viol = 1.0 if violations else 0.0
+            elif self.diminishing_returns:
+                r_viol = self.attributor.violation_reward(violations, prior_counts=policy_counts)
+            else:
+                r_viol = self.attributor.violation_reward(violations)
+            # Update counts AFTER reward computation
+            for pid in triggered:
+                policy_counts[pid] = policy_counts.get(pid, 0) + 1
             r_prog = self.shaper.score(episode, tidx)
             r_nov = self.novelty.score(triggered, cluster_id)
             r_plaus = self.plausibility.score(episode, tidx)

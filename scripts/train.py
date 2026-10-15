@@ -59,7 +59,46 @@ def main():
                         help="Number of target responses per candidate (default: 1)")
     parser.add_argument("--auditor-gpu", type=int, default=None,
                         help="Override auditor GPU index (for SLURM multi-job setups)")
+    parser.add_argument("--reward-preset", type=str, default="v3",
+                        choices=["v3", "v2", "v2_dedup", "v1", "divonly"],
+                        help="Reward preset: v3=full V3 fixes, v2=no V3 fixes, "
+                             "v2_dedup=V2 + diminishing returns only, v1=baseline, "
+                             "divonly=generic diversity-only (binary success, no "
+                             "policy-coverage reward; pair with --method gflownet).")
+    # Reward-weight sensitivity (Xtwt W3): override individual hand-set weights on
+    # top of a preset so the effect of each can be measured at a matched step.
+    parser.add_argument("--gamma", type=float, default=None,
+                        help="Override plausibility weight gamma")
+    parser.add_argument("--beta-start", type=float, default=None,
+                        help="Override novelty weight beta at step 0")
+    parser.add_argument("--beta-end", type=float, default=None,
+                        help="Override novelty weight beta after warmup")
     args = parser.parse_args()
+
+    # Resolve reward preset to flags
+    presets = {
+        "v3":       dict(gamma=0.35, dedup=True,  anti_fab=True,  loop_det=True,  db_scen=True),
+        "v2":       dict(gamma=0.10, dedup=False, anti_fab=False, loop_det=False, db_scen=False),
+        "v2_dedup": dict(gamma=0.10, dedup=True,  anti_fab=False, loop_det=False, db_scen=False),
+        "v1":       dict(gamma=0.10, dedup=False, anti_fab=False, loop_det=False, db_scen=False),
+        # Generic diversity-seeking red-teaming baseline (bwc6 Q1, part b):
+        # identical to V3 EXCEPT the policy-specific coverage reward is replaced
+        # by a binary "any violation" success signal and the policy-specific
+        # novelty term is zeroed (beta=0). The GFlowNet optimizer's mode-covering
+        # objective supplies generic trajectory diversity. Isolates "policy-
+        # specific coverage reward" vs "generic diverse search" at matched
+        # optimizer family, target, verifiers, and plausibility shaping.
+        "divonly":  dict(gamma=0.35, dedup=False, anti_fab=True,  loop_det=True,  db_scen=True,
+                         binary_viol=True, beta_start=0.0, beta_end=0.0),
+    }
+    rcfg = dict(presets[args.reward_preset])
+    overrides = {k: v for k, v in (("gamma", args.gamma),
+                                   ("beta_start", args.beta_start),
+                                   ("beta_end", args.beta_end)) if v is not None}
+    rcfg.update(overrides)
+    print(f"  Reward preset: {args.reward_preset} -> {rcfg}")
+    if overrides:
+        print(f"  Reward-weight overrides: {overrides}")
 
     cfg = load_config()
 
@@ -101,6 +140,12 @@ def main():
     reward = CompositeReward(
         db=db, policy_registry=policies,
         attributor=attributor, novelty_scorer=novelty,
+        gamma=rcfg["gamma"],
+        beta_start=rcfg.get("beta_start", 0.1),
+        beta_end=rcfg.get("beta_end", 0.4),
+        diminishing_returns=rcfg["dedup"],
+        anti_fabrication=rcfg["anti_fab"],
+        binary_violation=rcfg.get("binary_viol", False),
     )
 
     # Replay + Curriculum
@@ -140,6 +185,8 @@ def main():
         group_size=args.group_size, batch_size=args.batch_size,
         continuation_turns=args.continuation_turns,
         seed=args.seed,
+        loop_detection=rcfg["loop_det"],
+        db_aware_scenarios=rcfg["db_scen"],
     )
 
     ckpt_dir = Path(args.checkpoint_dir)

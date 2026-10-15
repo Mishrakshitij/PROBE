@@ -38,8 +38,14 @@ from aapo.inference.model_loader import load_inference_backend, load_auditor_con
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate AAPO auditor checkpoint")
-    parser.add_argument("--checkpoint", type=str, required=True,
+    parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to LoRA checkpoint directory")
+    parser.add_argument("--no-adapter", action="store_true",
+                        help="Evaluate the BASE auditor model zero-shot (no LoRA "
+                             "weights loaded). Same pipeline/scenarios/verifiers as a "
+                             "checkpoint eval — the fair same-model +/-training control.")
+    parser.add_argument("--tag", type=str, default=None,
+                        help="Name for output/log dirs (required with --no-adapter)")
     parser.add_argument("--episodes", type=int, default=100,
                         help="Number of evaluation episodes")
     parser.add_argument("--max-turns", type=int, default=8,
@@ -54,17 +60,26 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    ckpt_path = Path(args.checkpoint)
-    if not ckpt_path.exists():
-        print(f"ERROR: Checkpoint not found: {ckpt_path}")
-        sys.exit(1)
+    if args.no_adapter:
+        ckpt_path = None
+        if not args.tag:
+            print("ERROR: --tag is required with --no-adapter")
+            sys.exit(1)
+        ckpt_name = args.tag
+    else:
+        if not args.checkpoint:
+            print("ERROR: --checkpoint is required (or pass --no-adapter)")
+            sys.exit(1)
+        ckpt_path = Path(args.checkpoint)
+        if not ckpt_path.exists():
+            print(f"ERROR: Checkpoint not found: {ckpt_path}")
+            sys.exit(1)
+        ckpt_name = ckpt_path.parent.name + "_" + ckpt_path.name
 
     # Default output path
     if args.output is None:
-        ckpt_name = ckpt_path.parent.name + "_" + ckpt_path.name
         args.output = f"data/eval/{ckpt_name}_report.json"
     if args.log_dir is None:
-        ckpt_name = ckpt_path.parent.name + "_" + ckpt_path.name
         args.log_dir = f"data/eval/{ckpt_name}_logs"
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -103,11 +118,41 @@ def main():
         quantize_4bit=auditor_cfg.get("quantization") == "bitsandbytes-4bit",
         lora_config=lora_cfg,
     )
-    # Load trained adapter weights into the existing PeftModel
-    print(f"Loading LoRA checkpoint from {ckpt_path}")
-    from safetensors.torch import load_file as load_safetensors
-    state_dict = load_safetensors(str(ckpt_path / "adapter_model.safetensors"))
-    auditor.model.load_state_dict(state_dict, strict=False)
+    # Load trained adapter weights into the existing PeftModel.
+    # CRITICAL: must use peft's set_peft_model_state_dict() because the saved
+    # adapter file uses keys like "base_model.model....lora_A.weight" but the
+    # live PeftModel uses "base_model.model....lora_A.default.weight" (with
+    # adapter name). torch.load_state_dict(strict=False) silently drops these.
+    if args.no_adapter:
+        # Zero-shot control: peft zero-initialises lora_B, so an unloaded adapter is
+        # an exact identity and the model is numerically the untrained base — running
+        # through the same quantization, scenarios and scoring as a checkpoint eval.
+        # Verify that identity rather than assuming it.
+        import torch as _torch
+        nonzero = [n for n, p in auditor.model.named_parameters()
+                   if "lora_B" in n and _torch.count_nonzero(p).item() > 0]
+        if nonzero:
+            print(f"ERROR: {len(nonzero)} lora_B tensors are non-zero; the adapter is "
+                  f"not an identity. First: {nonzero[0]}")
+            sys.exit(1)
+        n_lora = sum(1 for n, _ in auditor.model.named_parameters() if "lora_" in n)
+        print(f"NO ADAPTER: base model zero-shot ({n_lora} LoRA tensors verified identity)")
+    else:
+        print(f"Loading LoRA checkpoint from {ckpt_path}")
+        from safetensors.torch import load_file as load_safetensors
+        from peft.utils.save_and_load import set_peft_model_state_dict
+        state_dict = load_safetensors(str(ckpt_path / "adapter_model.safetensors"))
+        load_result = set_peft_model_state_dict(auditor.model, state_dict)
+        # Sanity check: assert no parameters were silently skipped
+        if hasattr(load_result, "unexpected_keys") and load_result.unexpected_keys:
+            print(f"  WARNING: {len(load_result.unexpected_keys)} unexpected keys")
+        if hasattr(load_result, "missing_keys"):
+            # peft's missing_keys excludes non-LoRA params; should be empty for adapter
+            adapter_missing = [k for k in load_result.missing_keys if "lora_" in k]
+            if adapter_missing:
+                print(f"  ERROR: {len(adapter_missing)} adapter keys missing! "
+                      f"First: {adapter_missing[0]}")
+        print(f"  -> Loaded {len(state_dict)} adapter tensors")
     auditor.model.eval()
 
     # Reward scoring
@@ -125,7 +170,10 @@ def main():
 
     print(f"Running {args.episodes} evaluation episodes (max_turns={args.max_turns})...")
     print(f"  Target: {target_client.model_name}")
-    print(f"  Auditor: {auditor_cfg.get('name')} + LoRA from {ckpt_path}")
+    if args.no_adapter:
+        print(f"  Auditor: {auditor_cfg.get('name')} (zero-shot, no adapter)")
+    else:
+        print(f"  Auditor: {auditor_cfg.get('name')} + LoRA from {ckpt_path}")
     print(f"  Output: {args.output}")
     print()
 

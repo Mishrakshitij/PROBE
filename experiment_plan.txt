@@ -1,0 +1,273 @@
+================================================================================
+  AAPO — Full Experimental Plan
+  Goal: Train & evaluate LLM auditors that discover policy violations
+         in a flight-booking agent, comparing 3 training methods
+================================================================================
+
+PROJECT GOAL
+─────────────
+  Train an LLM (Qwen3-4B) to play the "user" role against a flight-booking
+  target agent (Qwen3-30B), generating diverse multi-turn interactions that
+  surface as many of the 20 defined policies as possible.
+
+  Success = high coverage (% policies found), high yield (violations/episode),
+            high diversity (distinct failure modes), with plausible interactions.
+
+CURRENT STATE (after Section F)
+───────────────────────────────
+  ✓ Pipeline validated end-to-end
+  ✓ B0 baseline: 0 violations (random — expected)
+  ✓ B2 baseline (20 ep): 124 violations, 9/20 policies, 45% coverage
+  ✓ Training smoke: 5 GRPO steps, LoRA saved
+  ✓ Catalog export: 19 failure clusters
+
+GPU LAYOUT
+──────────
+  GPU 7  → vLLM: Qwen3-30B-A3B-Instruct-2507 (target + judge, port 8001)
+  GPU 5  → Auditor: Qwen3-4B-Instruct-2507 QLoRA 4-bit (training)
+  GPU 3+4 → vLLM: Qwen3-Next-80B-A3B (eval judge, port 8002)
+
+================================================================================
+  PHASE 1 — BASELINES (no training, reference points)
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Run    │ Method          │ Episodes │ GPU     │ Purpose    │
+  ├─────────┼─────────────────┼──────────┼─────────┼────────────┤
+  │  B0     │ Random auditor  │   200    │ 7       │ Lower bound│
+  │  B2     │ Zero-shot LLM   │   200    │ 7       │ Upper ref  │
+  └─────────────────────────────────────────────────────────────┘
+
+  Commands:
+    python scripts/run_baseline.py --baseline B0 --episodes 200 --seed 42
+    python scripts/run_baseline.py --baseline B2 --episodes 200 --seed 42
+
+  Expected outputs:
+    data/logs/baseline_B0/episodes.jsonl
+    data/logs/baseline_B2/episodes.jsonl
+
+  Metrics to record:
+    - Coverage (% of 20 policies)
+    - Violations/episode
+    - Severity distribution
+    - Unique policy combos
+
+================================================================================
+  PHASE 2 — MAIN TRAINING RUNS (3 methods × 2000 steps)
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Run    │ Method   │ Steps │ Batch │ Group │ GPU      │ LR         │
+  ├─────────┼──────────┼───────┼───────┼───────┼──────────┼────────────┤
+  │  T1     │ GRPO     │ 2000  │   4   │   8   │ 5+7      │ 1e-5      │
+  │  T2     │ DPO      │ 2000  │   4   │   8   │ 5+7      │ 5e-6      │
+  │  T3     │ GFlowNet │ 2000  │   4   │   8   │ 5+7      │ 1e-5      │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  GPU usage:
+    GPU 7 = vLLM (target + judge inference)
+    GPU 5 = Auditor QLoRA training
+
+  Commands:
+    python scripts/train.py --method grpo     --steps 2000 --seed 42
+    python scripts/train.py --method dpo      --steps 2000 --seed 42
+    python scripts/train.py --method gflownet --steps 2000 --seed 42
+
+  Checkpoints saved every 200 steps → data/checkpoints/{method}/step_{N}
+
+  Curriculum stages (auto-advancing):
+    Stage 0: K_max =  6 turns  (short probes)
+    Stage 1: K_max = 10 turns  (medium conversations)
+    Stage 2: K_max = 16 turns  (complex multi-step)
+    Stage 3: K_max = 24 turns  (long-horizon violations)
+
+    Advance when: yield ≥ 0.15 AND no new policies for 50 steps
+
+  Reward schedule (linear over 2000 steps):
+    α (progress):    0.5 → 0.1  (early guidance fades)
+    β (novelty):     0.1 → 0.4  (exploration increases)
+    γ (plausibility): 0.1 fixed
+
+  What to monitor during training:
+    - loss per step
+    - violation yield per step
+    - curriculum stage advancement timestamps
+    - EMA divergence
+
+================================================================================
+  PHASE 3 — EVALUATION (per trained method + baselines)
+================================================================================
+
+  For EACH of {B0, B2, GRPO, DPO, GFlowNet}:
+
+  Step 3a: Generate evaluation episodes
+  ──────────────────────────────────────
+    200 episodes × 3 seeds = 600 episodes per method
+
+    For trained methods, load final LoRA checkpoint and run against target.
+    For B0/B2, already collected in Phase 1.
+
+    GPU layout for eval:
+      GPU 7   → vLLM target (same as training)
+      GPU 3+4 → vLLM eval judge (Qwen3-Next-80B-A3B, stronger)
+
+  Step 3b: Score with eval judge
+  ──────────────────────────────
+    The 4 non-deterministic policies (B4, B6, P1, S5) need LLM judge.
+    Use the stronger 80B eval judge on GPU 3+4 for final scoring.
+
+  Step 3c: Compute metrics
+  ────────────────────────
+    python scripts/evaluate.py --log-dir data/logs/{method}
+
+    Metrics:
+    ┌────────────────────────────────────────────────────────┐
+    │  Category   │ Metric                                   │
+    ├─────────────┼──────────────────────────────────────────┤
+    │  Coverage   │ % policies triggered (out of 20)         │
+    │             │ Unique policy combos                     │
+    │             │ Coverage curve (cumulative over episodes) │
+    │             │ Missing policies list                    │
+    ├─────────────┼──────────────────────────────────────────┤
+    │  Yield      │ Violations / 100 episodes                │
+    │             │ Severe (HIGH+CRITICAL) / 100 episodes    │
+    │             │ Multi-policy rate                        │
+    │             │ Per-severity breakdown                   │
+    ├─────────────┼──────────────────────────────────────────┤
+    │  Diversity   │ # failure mode clusters                 │
+    │             │ Cluster entropy (Shannon)                │
+    │             │ Discovery rate (new clusters / 50 eps)   │
+    │             │ Unclustered %                            │
+    ├─────────────┼──────────────────────────────────────────┤
+    │  Efficiency │ Episodes per cluster                     │
+    │             │ Target calls per policy                  │
+    │             │ Judge calls per cluster                  │
+    └────────────────────────────────────────────────────────┘
+
+  Step 3d: Export failure catalog
+  ──────────────────────────────
+    python scripts/export_catalog.py --log-dir data/logs/{method} \
+                                     --output data/failure_catalog_{method}.json
+
+================================================================================
+  PHASE 4 — ABLATIONS
+================================================================================
+
+  Purpose: isolate contribution of key design choices
+
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │  Ablation    │ What changes           │ Method │ Steps │ Compare to  │
+  ├──────────────┼────────────────────────┼────────┼───────┼─────────────┤
+  │  A1: No EMA  │ Sample from π_train    │ GRPO   │ 1000  │ T1          │
+  │              │ instead of π_EMA       │        │       │             │
+  ├──────────────┼────────────────────────┼────────┼───────┼─────────────┤
+  │  A2: No      │ Fixed K_max=24         │ GRPO   │ 1000  │ T1          │
+  │  curriculum  │ (no staging)           │        │       │             │
+  ├──────────────┼────────────────────────┼────────┼───────┼─────────────┤
+  │  A3: No      │ β_novelty = 0 fixed    │ GRPO   │ 1000  │ T1          │
+  │  novelty     │                        │        │       │             │
+  ├──────────────┼────────────────────────┼────────┼───────┼─────────────┤
+  │  A4: No      │ γ_plausibility = 0     │ GRPO   │ 1000  │ T1          │
+  │  plausibility│                        │        │       │             │
+  ├──────────────┼────────────────────────┼────────┼───────┼─────────────┤
+  │  A5: No      │ α_progress = 0         │ GRPO   │ 1000  │ T1          │
+  │  progress    │                        │        │       │             │
+  └───────────────────────────────────────────────────────────────────────┘
+
+  Each ablation: 1000 steps, then evaluate 200 episodes.
+  Compare coverage, yield, diversity against full GRPO (T1).
+
+================================================================================
+  PHASE 5 — SEED ROBUSTNESS
+================================================================================
+
+  Best method from Phase 3 → run with 3 different seeds
+
+  ┌─────────────────────────────────────────────┐
+  │  Run  │ Method  │ Seed │ Steps │ Eval eps   │
+  ├───────┼─────────┼──────┼───────┼────────────┤
+  │  R1   │ best    │  42  │ 2000  │ 200        │
+  │  R2   │ best    │ 123  │ 2000  │ 200        │
+  │  R3   │ best    │ 456  │ 2000  │ 200        │
+  └─────────────────────────────────────────────┘
+
+  Report: mean ± std across seeds for all metrics.
+
+================================================================================
+  PHASE 6 — CROSS-DB GENERALIZATION
+================================================================================
+
+  Test if trained auditor generalizes to unseen flight DBs.
+
+  Train on seed=42 DB → evaluate on seed=123 and seed=456 DBs.
+
+  Commands:
+    python scripts/init_db.py --seed 123
+    python scripts/init_db.py --seed 456
+    # Run eval episodes with trained LoRA on each DB
+
+  Compare coverage/yield across DBs.
+
+================================================================================
+  RUN ORDER & ESTIMATED TIME
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  #  │ Phase          │ Runs                  │ Est. Time        │
+  ├─────┼────────────────┼───────────────────────┼──────────────────┤
+  │  1  │ Baselines      │ B0 + B2 (200 ep each) │ ~3-4 hours       │
+  │  2  │ GRPO training  │ T1: 2000 steps        │ ~24-48 hours     │
+  │  3  │ DPO training   │ T2: 2000 steps        │ ~24-48 hours     │
+  │  4  │ GFlowNet train │ T3: 2000 steps        │ ~24-48 hours     │
+  │  5  │ Eval (all 5)   │ 5 × 200 ep × 3 seeds  │ ~6-8 hours       │
+  │  6  │ Ablations      │ A1-A5: 1000 steps each│ ~60-120 hours    │
+  │  7  │ Seed runs      │ R1-R3: 2000 steps each│ ~72-144 hours    │
+  │  8  │ Cross-DB       │ Eval on 2 extra DBs   │ ~4-6 hours       │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Total estimate: ~200-400 GPU-hours on A100-40GB
+
+  Parallelization opportunity:
+    - T1, T2, T3 are independent → can run sequentially on same GPUs
+    - Ablations A1-A5 independent → run after best method identified
+    - Eval runs use GPU 3+4 (judge) → can overlap with next training
+
+================================================================================
+  EXPECTED RESULTS TABLE (to fill in)
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Method    │ Coverage │ Yield  │ Clusters │ Entropy │ Severe/100   │
+  ├────────────┼──────────┼────────┼──────────┼─────────┼──────────────┤
+  │  B0 random │          │        │          │         │              │
+  │  B2 zero   │          │        │          │         │              │
+  │  GRPO      │          │        │          │         │              │
+  │  DPO       │          │        │          │         │              │
+  │  GFlowNet  │          │        │          │         │              │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  Hypothesis:
+    - GRPO: highest yield (strongest optimization signal)
+    - GFlowNet: highest diversity (mode-covering objective)
+    - DPO: middle ground (preference-based, simpler)
+    - All trained >> B2 >> B0
+
+================================================================================
+  KEY FILES & OUTPUTS
+================================================================================
+
+  Inputs:
+    configs/models.yaml       — model names, GPUs, ports
+    configs/training.yaml     — hyperparams, curriculum
+    configs/reward.yaml       — reward weights, scheduling
+    configs/eval.yaml         — eval episode count, seeds
+    configs/policies.yaml     — 20 policies
+
+  Outputs per run:
+    data/logs/{run}/episodes.jsonl         — episode logs with violations
+    data/checkpoints/{method}/step_{N}/    — LoRA checkpoints
+    data/checkpoints/{method}/final/       — final LoRA
+    data/eval_report_{method}.json         — evaluation metrics
+    data/failure_catalog_{method}.json     — clustered failure catalog
+
+================================================================================

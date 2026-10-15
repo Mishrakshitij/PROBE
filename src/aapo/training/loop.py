@@ -65,6 +65,9 @@ class TrainingLoop:
         ema_decay: float = 0.995,
         eval_every: int = 50,
         seed: int = 42,
+        # Ablation flags
+        loop_detection: bool = True,
+        db_aware_scenarios: bool = True,
     ):
         self.auditor = auditor
         self.target = target
@@ -82,15 +85,21 @@ class TrainingLoop:
         self.ema_decay = ema_decay
         self.rng = random.Random(seed)
 
-        # Scenario pool for diverse customer personas
-        self.scenario_pool = ScenarioPool(seed=seed)
+        # Scenario pool: DB-aware (V3) or static (V2)
+        if db_aware_scenarios:
+            try:
+                self.scenario_pool = ScenarioPool.from_db(str(db.db_path), seed=seed)
+            except Exception:
+                self.scenario_pool = ScenarioPool(seed=seed)
+        else:
+            self.scenario_pool = ScenarioPool(seed=seed)
 
         # EMA policy
         self.ema = EMAPolicy(auditor, decay=ema_decay)
         self.sampler = CandidateSampler(auditor, self.ema)
 
         # Episode + prefix runners
-        self.episode_runner = EpisodeRunner(target, logger, max_turns=14)
+        self.episode_runner = EpisodeRunner(target, logger, max_turns=14, loop_detection=loop_detection)
         self.prefix_runner = SharedPrefixRunner(target, continuation_turns=continuation_turns)
 
         # Updaters (initialized lazily based on method)

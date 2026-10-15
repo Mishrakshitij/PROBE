@@ -99,6 +99,14 @@ class VLLMClient:
                 err_msg = str(e).lower()
                 if "context length" in err_msg or "input_tokens" in err_msg:
                     return "", []  # context overflow — signal caller to stop
+                # Some targets (e.g. Llama via the llama3_json parser) only allow
+                # one tool call per turn and reject the OpenAI default of parallel
+                # tool calls. Retry with parallel calls disabled. No effect on
+                # models that accept parallel calls (they never raise this).
+                if ("single tool" in err_msg or "parallel" in err_msg) \
+                        and kwargs.get("parallel_tool_calls") is not False:
+                    kwargs["parallel_tool_calls"] = False
+                    continue
                 if "max_tokens" in str(e) and max_tok > 128:
                     max_tok = max_tok // 2  # halve and retry
                     continue

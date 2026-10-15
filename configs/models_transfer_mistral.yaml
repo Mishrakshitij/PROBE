@@ -1,0 +1,46 @@
+# Cross-family transfer eval (bwc6 Q2): Qwen-trained auditor vs a Mistral target.
+#
+# Ministral-3-3B-Instruct (Mistral3ForConditionalGeneration) is a genuinely
+# different family (Mistral), is supported by this vLLM build, ships a chat
+# template with NATIVE tool support, and uses vLLM's `mistral` tool parser — a
+# different code path from `llama3_json`, which rejected Llama-3.1's parallel
+# tool calls. The auditor (Qwen3-4B QLoRA, DPO-V3 s300) was trained ONLY against
+# the Qwen3-30B SkyAssist target; the judge is held FIXED at Qwen3-30B.
+#
+# GPU layout (2x A100-40GB):
+#   GPU 0: Qwen3-30B judge      (vLLM, port 8001)
+#   GPU 1: Ministral-3B target  (vLLM, port 8003) + Qwen3-4B auditor
+models:
+  target:
+    name: "mistralai/Ministral-3-3B-Instruct-2512"
+    backend: "vllm"
+    gpu: 1
+    quantization: "bitsandbytes"
+    gpu_memory_utilization: 0.45
+    port: 8003
+    tool_call_parser: "mistral"
+    max_model_len: 8192
+    temperature: 0.3
+    max_tokens: 512
+
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct-2507"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05

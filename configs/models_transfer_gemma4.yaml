@@ -1,0 +1,48 @@
+# Cross-family transfer eval (bwc6 Q2): Qwen-trained auditor vs a Gemma-4 target.
+#
+# Gemma-4 (google/gemma-4-E4B-it, Gemma4ForConditionalGeneration) is a genuinely
+# different family (Google). It could not be served by our env's vLLM 0.16 (arch
+# unsupported), so the target is served from haoyi's vLLM 0.22.1 (VLLM_ENV=
+# .../conda_envs/haoyi2_vllm) which supports Gemma-4 and ships a dedicated
+# `gemma4` tool parser. Unlike gemma-3-4b, Gemma-4's chat template DOES render
+# tools, so it can actually tool-call. The judge is held FIXED at Qwen3-30B; the
+# auditor is the Qwen3-4B QLoRA DPO-V3 s300 checkpoint. Eval + auditor run in
+# AAPO_CONDA_ENV and reach the servers over HTTP, so vLLM versions may differ.
+#
+# GPU layout (2x A100-40GB):
+#   GPU 0: Qwen3-30B judge   (vLLM 0.22.1, port 8001)
+#   GPU 1: Gemma-4 target    (vLLM 0.22.1, port 8003) + Qwen3-4B auditor
+models:
+  target:
+    name: "google/gemma-4-E4B-it"
+    backend: "vllm"
+    gpu: 1
+    quantization: "bitsandbytes"
+    gpu_memory_utilization: 0.45
+    port: 8003
+    tool_call_parser: "gemma4"
+    max_model_len: 8192
+    temperature: 0.3
+    max_tokens: 512
+
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct-2507"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05

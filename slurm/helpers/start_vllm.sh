@@ -14,9 +14,21 @@ GPU="${2:-0}"
 PORT="${3:-8001}"
 LOGFILE="${4:-slurm/logs/vllm.log}"
 
-echo "[vLLM] Launching $MODEL on GPU $GPU, port $PORT"
+# SLURM sets CUDA_VISIBLE_DEVICES to the PHYSICAL GPUs allocated to this job
+# (e.g. "2,3"). Overriding it with a bare logical index would point vLLM at a
+# physical device the job does not own — which on this cluster is often already
+# occupied ("Free memory on device cuda:0 ... less than desired utilization").
+# Map the requested logical index through the allocation instead.
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    IFS=',' read -ra _ALLOC <<< "$CUDA_VISIBLE_DEVICES"
+    DEV="${_ALLOC[$GPU]:-${_ALLOC[0]}}"
+else
+    DEV="$GPU"
+fi
 
-CUDA_VISIBLE_DEVICES=$GPU python -m vllm.entrypoints.openai.api_server \
+echo "[vLLM] Launching $MODEL on logical GPU $GPU -> physical $DEV, port $PORT"
+
+CUDA_VISIBLE_DEVICES=$DEV python -m vllm.entrypoints.openai.api_server \
     --model "$MODEL" \
     --host 127.0.0.1 \
     --port "$PORT" \

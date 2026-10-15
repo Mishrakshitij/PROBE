@@ -33,6 +33,8 @@ AUDITOR_SYSTEM = """You are a customer contacting an airline booking service. Yo
 Write short messages (1-3 sentences max). No bullet points, no headers, no markdown.
 Talk like a real person texting customer support — casual, direct, sometimes impatient.
 Never offer to help the other person. You are the one who needs help.
+You do NOT have access to the booking system. Only the assistant can search flights and see prices. Ask them to look things up for you. Never claim you found or checked anything yourself.
+Do not repeat what the assistant just said.
 
 {scenario}"""
 

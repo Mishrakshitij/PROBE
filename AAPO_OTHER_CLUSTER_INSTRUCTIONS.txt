@@ -1,0 +1,296 @@
+================================================================
+AAPO — INSTRUCTIONS FOR PARALLEL CLUSTER
+================================================================
+
+You're helping run AAPO experiments on a parallel cluster. The codebase is in
+AAPO_codebase_clean.zip (~3 MB, no checkpoints). Read AAPO_Experiment_Plan.docx
+(in the zip) for full project context including codebase walkthrough, training
+pipeline, prior experiments (V1/V2/V3), and risk register.
+
+YOUR ASSIGNMENTS (priority order):
+  1. tau-bench migration  (PRIMARY, 5-7 days)
+  2. Transfer experiments to non-Qwen targets  (PARALLEL, 1-2 days)
+
+DO NOT RUN THESE (they are running on the other cluster):
+  - V3 evaluations
+  - Dedup-only ablation
+  - GFlowNet + V1 reward sanity check
+  - Three-seed runs
+
+
+================================================================
+CRITICAL BUG FIX TO APPLY BEFORE ANY EVALUATION
+================================================================
+
+The eval_checkpoint.py shipped in the zip has a LoRA loading bug. The saved
+adapter file uses keys like `...lora_A.weight` but the live PeftModel expects
+`...lora_A.default.weight` (with adapter name). Because we used strict=False
+on load_state_dict, EVERY LoRA weight was silently dropped. As a result, all
+prior evaluations were on the BASE model, not the trained checkpoints.
+
+Fix is REQUIRED before any evaluation produces meaningful results.
+
+In scripts/eval_checkpoint.py, find this block:
+
+    print(f"Loading LoRA checkpoint from {ckpt_path}")
+    from safetensors.torch import load_file as load_safetensors
+    state_dict = load_safetensors(str(ckpt_path / "adapter_model.safetensors"))
+    auditor.model.load_state_dict(state_dict, strict=False)
+    auditor.model.eval()
+
+Replace with:
+
+    print(f"Loading LoRA checkpoint from {ckpt_path}")
+    from safetensors.torch import load_file as load_safetensors
+    from peft.utils.save_and_load import set_peft_model_state_dict
+    state_dict = load_safetensors(str(ckpt_path / "adapter_model.safetensors"))
+    load_result = set_peft_model_state_dict(auditor.model, state_dict)
+    if hasattr(load_result, "missing_keys"):
+        adapter_missing = [k for k in load_result.missing_keys if "lora_" in k]
+        if adapter_missing:
+            print(f"  ERROR: {len(adapter_missing)} adapter keys missing! "
+                  f"First: {adapter_missing[0]}")
+    print(f"  -> Loaded {len(state_dict)} adapter tensors")
+    auditor.model.eval()
+
+Verify the fix by running an eval on any checkpoint you receive: the script
+should print "Loaded 288 adapter tensors" with no missing-key errors. If it
+prints fewer than 288 tensors or any missing-key error, do NOT run further
+evals until resolved.
+
+
+================================================================
+INITIAL SETUP
+================================================================
+
+# 1. Extract the codebase
+unzip AAPO_codebase_clean.zip
+cd <unzipped-dir>
+
+# 2. Conda environment (Python 3.11)
+conda create -n aapo python=3.11 -y
+conda activate aapo
+
+# 3. Install dependencies (see AAPO_Experiment_Plan.docx Section 2 for full list)
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+pip install transformers accelerate peft bitsandbytes vllm
+pip install datasets sentence-transformers hdbscan scikit-learn
+pip install omegaconf pyyaml jsonlines wandb
+pip install matplotlib seaborn scipy openai
+pip install liger-kernel flash-attn --no-build-isolation
+
+# 4. Pre-fetch HuggingFace models (large; do once on shared cache)
+export HF_HOME=/your/path/hf_cache
+huggingface-cli download Qwen/Qwen3-30B-A3B-Instruct-2507
+huggingface-cli download Qwen/Qwen3-4B-Instruct-2507
+huggingface-cli download sentence-transformers/all-MiniLM-L6-v2
+
+# 5. Apply the LoRA fix above to scripts/eval_checkpoint.py
+
+# 6. Initialize the flight database (gives data/flights.db)
+python scripts/init_db.py --seed 42
+
+# 7. Smoke test (CPU-friendly, no training)
+python scripts/smoke_test.py
+# Expected: a few episodes run end-to-end with a random auditor.
+
+
+================================================================
+TASK 1: tau-BENCH MIGRATION (PRIMARY)
+================================================================
+
+Goal: Replace SkyAssist with tau-bench's airline environment so the paper
+can directly compare against their NeurIPS 2024 leaderboard.
+
+Reference paper: https://arxiv.org/abs/2406.12045
+Their repo: https://github.com/sierra-research/tau-bench
+
+CRITICAL DECISION POINTS — surface to the user BEFORE coding these:
+  (a) Use their LLM user simulator or replace with our trained auditor?
+      Our intended delta IS replacing it. Confirm before writing wrappers.
+  (b) Keep our 4 reward components, or align with their reward signal?
+      Keep ours: we optimize for violation discovery, they optimize for
+      task success. Confirm before changing reward.
+
+Implementation steps (work on a feature branch):
+
+  git checkout -b feature/tau-bench
+
+  # Step 1: Read tau-bench's airline env
+  git clone https://github.com/sierra-research/tau-bench /tmp/tau-bench
+  # Read /tmp/tau-bench/tau_bench/envs/airline/
+
+  # Step 2: Wrap their target as our InferenceBackend
+  # File: src/aapo/environment/tau_bench_target.py
+  # Class TauBenchTarget that implements our protocol:
+  #     generate(history) -> Turn (with optional tool_calls)
+
+  # Step 3: Adapt their policies to our verifier framework
+  # File: src/aapo/reward/verifiers_taubench.py
+  # Their airline policies are in tau_bench/envs/airline/data/policy.md
+  # Convert each policy to a Verifier subclass returning ViolationLabel
+
+  # Step 4: Map their tools to ToolRegistry
+  # Their tools are in tau_bench/envs/airline/tools/
+  # Wrap each in our Tool format with JSON schema
+
+  # Step 5: Add ScenarioPool.from_tau_bench()
+  # Their tasks are in tau_bench/envs/airline/tasks_dev.json
+  # Each task has a user_instruction; use that as our scenario.description
+
+  # Step 6: Smoke test the new env
+  python scripts/smoke_test.py --env tau_bench
+
+  # Step 7: Train V3 on tau-bench
+  METHOD=dpo SEED=42 RUN_TAG=_taubench_v3 \
+    sbatch --job-name=aapo-dpo-taubench slurm/train_single.sbatch
+
+  # Step 8: Evaluate
+  CHECKPOINT=data/checkpoints/dpo_seed42_taubench_v3/step_300 \
+    EPISODES=100 sbatch slurm/eval_single.sbatch
+
+Output naming: use RUN_TAG=_taubench_v3 so files don't collide with the
+other cluster's _v3 results. Final files should be e.g.:
+  data/checkpoints/dpo_seed42_taubench_v3/step_*
+  data/eval/dpo_seed42_taubench_v3_step_300_report.json
+
+
+================================================================
+TASK 2: TRANSFER EXPERIMENT (PARALLEL)
+================================================================
+
+Goal: Show the trained auditor finds violations against a target model it
+was NOT trained against. Strengthens the "learning" framing of the paper.
+
+Approach: Run trained DPO V3 step 300 (from the other cluster) against
+GPT-4o-mini as target.
+
+Implementation steps:
+
+  # Step 1: Add OpenAIClient
+  # File: src/aapo/inference/openai_client.py
+  # Mirror VLLMClient interface; wrap openai.AsyncOpenAI
+  # Methods: generate(messages, **kwargs) -> str
+  #          generate_with_tools(messages, tools, **kwargs) -> (str, list[ToolCall])
+
+  # Step 2: Create transfer config
+  cat > configs/models_transfer_gpt4omini.yaml << 'EOF'
+models:
+  target:
+    name: "gpt-4o-mini"
+    backend: "openai"
+    api_key_env: "OPENAI_API_KEY"
+    temperature: 0.3
+    max_tokens: 512
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct-2507"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05
+EOF
+
+  # Step 3: Wait for the other cluster to share a trained checkpoint
+  # rsync over: data/checkpoints/dpo_seed42_v3/step_300/
+
+  # Step 4: Run transfer eval (with the LoRA fix applied)
+  export OPENAI_API_KEY=...
+  CHECKPOINT=data/checkpoints/dpo_seed42_v3/step_300 \
+    EPISODES=50 \
+    MODELS_CONFIG=configs/models_transfer_gpt4omini.yaml \
+    sbatch --job-name=eval-transfer-gpt4omini slurm/eval_single.sbatch
+
+  # Step 5: Run same checkpoint against the original target for comparison
+  # (this should already exist on the other cluster; sync result over)
+
+  # Step 6: Report
+  # - Coverage on Qwen3-30B target
+  # - Coverage on GPT-4o-mini target
+  # - Per-policy distribution comparison
+  # - Note: lower coverage on GPT-4o-mini is expected and meaningful
+
+
+================================================================
+PROGRESS REPORTING
+================================================================
+
+Report to the user when:
+  - tau-bench env is integrated, smoke test passes (Step 6 of Task 1)
+  - First tau-bench training run starts producing log entries
+  - Transfer eval produces a report
+  - Any blocking issue (missing data, API errors, env mismatch)
+
+File naming convention (KEEP CONSISTENT):
+  Training:    data/checkpoints/{method}_seed{N}_{tag}/step_*
+  Logs:        data/logs/{method}_seed{N}_{tag}/training_metrics.jsonl
+  Eval report: data/eval/{run}_step_{N}_report.json
+  Eval logs:   data/eval/{run}_step_{N}_logs/episodes.jsonl
+
+Where {tag} for this cluster should be one of:
+  _taubench_v3              (tau-bench training)
+  _v3_transfer_gpt4omini    (transfer eval)
+  _v3_transfer_llama        (if also running Llama transfer)
+
+
+================================================================
+COMMUNICATION WITH OTHER CLUSTER
+================================================================
+
+To share results to the other cluster (or pull from it), use rsync:
+
+  # Push your results
+  rsync -av data/logs/ central:/shared/aapo/cluster_external/logs/
+  rsync -av data/eval/ central:/shared/aapo/cluster_external/eval/
+
+  # Pull a checkpoint from the other cluster (for transfer experiment)
+  rsync -av central:/shared/aapo/cluster_main/checkpoints/dpo_seed42_v3/step_300/ \
+    data/checkpoints/dpo_seed42_v3/step_300/
+
+
+================================================================
+BLOCKING / NON-BLOCKING WORK
+================================================================
+
+START IMMEDIATELY (no dependencies):
+  - tau-bench codebase reading and integration (Task 1, steps 1-6)
+  - OpenAIClient wrapper (Task 2, step 1)
+  - Setup (env, dependencies, model fetch)
+
+WAIT FOR INPUT FROM OTHER CLUSTER:
+  - DPO V3 step 300 checkpoint (for transfer eval)
+  - tau-bench eval baseline numbers from other cluster (if needed)
+
+WAIT FOR USER DECISION:
+  - LLM user simulator vs trained auditor (Task 1 decision a)
+  - Reward function alignment (Task 1 decision b)
+
+
+================================================================
+TIMELINE EXPECTATIONS
+================================================================
+
+Day 1-2:    Setup, model fetch, smoke test, apply LoRA fix
+Day 2-4:    tau-bench env integration (Task 1 steps 1-6)
+Day 4-7:    First tau-bench training run + transfer eval in parallel
+Day 7-10:   Second/third tau-bench seeds, transfer to Llama if time
+
+Total: ~10 days for both tasks if no blocking issues.
+
+
+================================================================
+END OF INSTRUCTIONS
+================================================================

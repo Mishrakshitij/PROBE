@@ -414,11 +414,6 @@ Generated artifacts (`data/flights.db`, `data/logs/`, `data/eval/`, `data/checkp
 
 ---
 
-## Responsible use
-
-> [!CAUTION]
-> PROBE is built for **operators** auditing their own agents before and after deployment. All experiments use synthetic environments. An auditor that finds policy gaps could also help an adversary find them. Use this code to harden systems you are responsible for, and turn the traces it discovers into regression tests.
-
 ## Citation
 
 If you find PROBE useful, please cite:

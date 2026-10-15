@@ -8,6 +8,7 @@ from typing import Any
 from omegaconf import OmegaConf
 
 from .vllm_client import VLLMClient, APIClient, InferenceBackend
+from .openai_client import OpenAIClient
 
 
 def load_models_config(path: str | Path = "configs/models.yaml") -> dict[str, Any]:
@@ -44,7 +45,8 @@ def load_inference_backend(
     backend = model_cfg.get("backend", "vllm")
 
     if backend == "vllm":
-        port = model_cfg.get("port", 8001)
+        import os
+        port = int(os.environ.get("AAPO_SERVER_PORT", model_cfg.get("port", 8001)))
         base_url = override_base_url or f"http://localhost:{port}/v1"
         return VLLMClient(
             base_url=base_url,
@@ -57,6 +59,16 @@ def load_inference_backend(
             model=model_cfg["name"],
             temperature=model_cfg.get("temperature", 0.3),
             max_tokens=model_cfg.get("max_tokens", 1024),
+        )
+    elif backend == "openai":
+        import os
+        api_key_env = model_cfg.get("api_key_env", "OPENAI_API_KEY")
+        api_key = os.environ.get(api_key_env)
+        return OpenAIClient(
+            model=model_cfg["name"],
+            api_key=api_key,
+            temperature=model_cfg.get("temperature", 0.3),
+            max_tokens=model_cfg.get("max_tokens", 512),
         )
     else:
         raise ValueError(f"Unknown backend '{backend}' for role '{role}'")

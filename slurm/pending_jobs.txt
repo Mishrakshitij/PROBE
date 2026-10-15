@@ -1,0 +1,7 @@
+# Rebuttal follow-up queue (drained by slurm/drain_queue.sh as QOS slots free).
+# Reward-weight sensitivity (Xtwt W3): GRPO + V3, 50 steps, seed 42, gamma
+# perturbed one at a time. Compared against the existing GRPO-V3 step_50 (50%)
+# at the matched step, so training length is held constant. Gamma is the weight
+# the paper actually changed between V2 and V3, so it is the one under scrutiny;
+# the beta perturbations were dropped to keep QOS slots for the multi-seed evals.
+# Third eval seed for bwc6's error bars (dropped earlier to make room for the Gemma baseline).

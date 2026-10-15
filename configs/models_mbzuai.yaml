@@ -1,0 +1,48 @@
+# Model config for MBZUAI cluster (mbz-titan nodes, RTX 6000 Ada 48GB)
+# Paths use locally available models so no HF download is needed at job start.
+#
+# GPU layout (2x RTX 6000 per job):
+#   GPU 0  ->  vLLM target + judge  (shared server, port 8001)
+#   GPU 1  ->  auditor (transformers + LoRA)
+
+models:
+  target:
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"  # VLLMClient speaks OpenAI API — works with SGLang server
+    gpu: 0
+    port: 8001
+    max_model_len: 8192
+    temperature: 0.3
+    max_tokens: 1024
+
+  judge:
+    # Shares the SGLang server with target (same model, same GPU)
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  judge_eval:
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "/shared/models/huggingface/Qwen3-4B"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05

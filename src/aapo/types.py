@@ -90,6 +90,7 @@ class RewardBreakdown:
     progress: float = 0.0
     novelty: float = 0.0
     plausibility: float = 0.0
+    proximity: float = 0.0
     total: float = 0.0
 
 

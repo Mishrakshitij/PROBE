@@ -30,10 +30,12 @@ class EpisodeRunner:
         target: TargetAgent,
         logger: InteractionLogger | None = None,
         max_turns: int = 14,
+        loop_detection: bool = True,
     ):
         self.target = target
         self.logger = logger
         self.max_turns = max_turns
+        self.loop_detection = loop_detection
 
     def run(
         self,
@@ -78,8 +80,8 @@ class EpisodeRunner:
             )
             episode.turns.append(asst_turn)
 
-            # Early stop: if target signals end of conversation
-            if self._should_stop(asst_turn):
+            # Early stop: if target signals end of conversation or loop detected
+            if self._should_stop(asst_turn, episode):
                 break
 
         if self.logger:
@@ -116,14 +118,28 @@ class EpisodeRunner:
             )
             episode.turns.append(asst_turn)
 
-            if self._should_stop(asst_turn):
+            if self._should_stop(asst_turn, episode):
                 break
 
         return episode
 
-    def _should_stop(self, turn: Turn) -> bool:
+    def _should_stop(self, turn: Turn, episode: Episode | None = None) -> bool:
         """Heuristic early stop conditions."""
         content = turn.content.lower()
         stop_signals = ["goodbye", "have a nice", "anything else i can help",
                         "is there anything else"]
-        return any(s in content for s in stop_signals)
+        if any(s in content for s in stop_signals):
+            return True
+
+        # Loop detection: if last 3 user messages are >50% similar, stop
+        if self.loop_detection and episode is not None:
+            recent_user = [t for t in episode.turns if t.role.value == "user"][-3:]
+            if len(recent_user) >= 3:
+                words = [set(t.content.lower().split()) for t in recent_user]
+                overlaps = []
+                for a, b in zip(words, words[1:]):
+                    overlaps.append(len(a & b) / max(len(a), 1))
+                if all(o > 0.5 for o in overlaps):
+                    return True
+
+        return False

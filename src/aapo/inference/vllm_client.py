@@ -3,12 +3,50 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Protocol
 
 from openai import OpenAI
 
 from ..types import ToolCall
+
+
+def _parse_xml_tool_calls(text: str) -> list[ToolCall]:
+    """Parse Qwen3 XML-style tool calls from content when SGLang doesn't structure them.
+
+    Handles both formats:
+      <tool_call>\n{"name": "fn", "arguments": {...}}\n</tool_call>
+      <tool_call>\n<function=fn>\n<parameter=k>v</parameter>\n</function>\n</tool_call>
+    """
+    calls = []
+    for block in re.findall(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL):
+        block = block.strip()
+        # JSON format: {"name": "fn", "arguments": {...}}
+        try:
+            obj = json.loads(block)
+            if "name" in obj:
+                calls.append(ToolCall(
+                    tool_name=obj["name"],
+                    arguments=obj.get("arguments") or obj.get("parameters") or {},
+                ))
+                continue
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # XML parameter format: <function=fn><parameter=k>v</parameter>...</function>
+        fn_match = re.search(r"<function=([^>]+)>", block)
+        if fn_match:
+            fn_name = fn_match.group(1).strip()
+            args = {}
+            for pm in re.finditer(r"<parameter=([^>]+)>(.*?)</parameter>", block, re.DOTALL):
+                args[pm.group(1).strip()] = pm.group(2).strip()
+            calls.append(ToolCall(tool_name=fn_name, arguments=args))
+    return calls
+
+
+def _strip_xml_tool_calls(text: str) -> str:
+    """Remove <tool_call>...</tool_call> blocks from content."""
+    return re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
 
 
 class InferenceBackend(Protocol):
@@ -36,12 +74,16 @@ class VLLMClient:
         max_tokens: int = 1024,
         timeout: float = 120.0,
         retries: int = 3,
+        disable_thinking: bool = True,
     ):
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.retries = retries
         self._client = OpenAI(base_url=base_url, api_key="not-needed", timeout=timeout)
+        # Qwen3 models default to thinking mode; disable it for agent use cases.
+        # SGLang respects chat_template_kwargs; standard vllm servers ignore it safely.
+        self._extra_body = {"chat_template_kwargs": {"enable_thinking": False}} if disable_thinking else {}
 
     def generate(self, messages: list[dict], **kwargs) -> str:
         """Generate text completion from messages."""
@@ -55,12 +97,14 @@ class VLLMClient:
                     messages=messages,
                     temperature=temp,
                     max_tokens=max_tok,
+                    extra_body=self._extra_body,
                     **kwargs,
                 )
                 return resp.choices[0].message.content or ""
             except Exception as e:
                 err_msg = str(e).lower()
-                if "context length" in err_msg or "input_tokens" in err_msg:
+                if ("context length" in err_msg or "input_tokens" in err_msg
+                        or "input length" in err_msg or "maximum allowed length" in err_msg):
                     return ""  # context overflow — signal caller to stop
                 if attempt == self.retries - 1:
                     raise
@@ -82,6 +126,7 @@ class VLLMClient:
                     tools=tools,
                     temperature=temp,
                     max_tokens=max_tok,
+                    extra_body=self._extra_body,
                     **kwargs,
                 )
                 msg = resp.choices[0].message
@@ -94,11 +139,26 @@ class VLLMClient:
                             tool_name=tc.function.name,
                             arguments=args,
                         ))
+                elif text:
+                    # SGLang may return Qwen3 XML tool calls in content instead of
+                    # structured tool_calls — parse them as a fallback.
+                    parsed_calls = _parse_xml_tool_calls(text)
+                    if parsed_calls:
+                        text = _strip_xml_tool_calls(text)
                 return text, parsed_calls
             except Exception as e:
                 err_msg = str(e).lower()
-                if "context length" in err_msg or "input_tokens" in err_msg:
+                if ("context length" in err_msg or "input_tokens" in err_msg
+                        or "input length" in err_msg or "maximum allowed length" in err_msg):
                     return "", []  # context overflow — signal caller to stop
+                # Some targets (e.g. Llama via the llama3_json parser) only allow
+                # one tool call per turn and reject the OpenAI default of parallel
+                # tool calls. Retry with parallel calls disabled. No effect on
+                # models that accept parallel calls (they never raise this).
+                if ("single tool" in err_msg or "parallel" in err_msg) \
+                        and kwargs.get("parallel_tool_calls") is not False:
+                    kwargs["parallel_tool_calls"] = False
+                    continue
                 if "max_tokens" in str(e) and max_tok > 128:
                     max_tok = max_tok // 2  # halve and retry
                     continue

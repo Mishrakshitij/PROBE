@@ -1,0 +1,46 @@
+# Cross-family transfer eval (bwc6 Q2): Qwen-trained auditor vs a Llama target.
+#
+# The auditor (Qwen3-4B QLoRA, DPO-V3 s300) was trained ONLY against the Qwen3-30B
+# SkyAssist target. Here we point it at a DIFFERENT model family — DeepSeek-R1-
+# Distill-Llama-8B (LlamaForCausalLM) — to test whether it learned to audit vs to
+# exploit Qwen-specific quirks. The judge is held FIXED at Qwen3-30B (same as the
+# paper) so coverage is comparable across target conditions; only the target family
+# changes.
+#
+# GPU layout (2x A100-40GB):
+#   GPU 0: Qwen3-30B judge      (vLLM, port 8001)
+#   GPU 1: Llama-8B target      (vLLM, port 8003, modest gpu-util) + Qwen3-4B auditor
+models:
+  target:
+    name: "meta-llama/Llama-3.1-8B-Instruct"
+    backend: "vllm"
+    gpu: 1
+    quantization: "bitsandbytes"
+    gpu_memory_utilization: 0.45   # leave room for the 4B QLoRA auditor on GPU 1
+    port: 8003
+    tool_call_parser: "llama3_json"
+    max_model_len: 8192
+    temperature: 0.3
+    max_tokens: 512
+
+  judge:
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "Qwen/Qwen3-4B-Instruct-2507"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05

@@ -51,11 +51,11 @@ class TrainingLoop:
         self,
         auditor: AuditorPolicy,
         target: TargetAgent,
-        db: FlightDB,
-        policy_registry: PolicyRegistry,
-        reward: CompositeReward,
-        replay: ReplayBuffer,
-        curriculum: CurriculumScheduler,
+        db: FlightDB | None = None,
+        policy_registry: PolicyRegistry | None = None,
+        reward: CompositeReward = None,
+        replay: ReplayBuffer = None,
+        curriculum: CurriculumScheduler = None,
         logger: InteractionLogger | None = None,
         training_logger: TrainingLogger | None = None,
         method: str = "grpo",
@@ -65,6 +65,11 @@ class TrainingLoop:
         ema_decay: float = 0.995,
         eval_every: int = 50,
         seed: int = 42,
+        # Ablation flags
+        loop_detection: bool = True,
+        db_aware_scenarios: bool = True,
+        episode_runner: EpisodeRunner | None = None,
+        scenario_pool: ScenarioPool | None = None,
     ):
         self.auditor = auditor
         self.target = target
@@ -82,15 +87,24 @@ class TrainingLoop:
         self.ema_decay = ema_decay
         self.rng = random.Random(seed)
 
-        # Scenario pool for diverse customer personas
-        self.scenario_pool = ScenarioPool(seed=seed)
+        # Scenario pool: caller may inject one (e.g. TauBench), else DB-aware (V3) or static (V2)
+        if scenario_pool is not None:
+            self.scenario_pool = scenario_pool
+        elif db_aware_scenarios and db is not None:
+            try:
+                self.scenario_pool = ScenarioPool.from_db(str(db.db_path), seed=seed)
+            except Exception:
+                self.scenario_pool = ScenarioPool(seed=seed)
+        else:
+            self.scenario_pool = ScenarioPool(seed=seed)
 
         # EMA policy
         self.ema = EMAPolicy(auditor, decay=ema_decay)
         self.sampler = CandidateSampler(auditor, self.ema)
 
-        # Episode + prefix runners
-        self.episode_runner = EpisodeRunner(target, logger, max_turns=14)
+        # Episode + prefix runners: caller may inject custom runners (e.g. TauBenchEpisodeRunner)
+        self.episode_runner = episode_runner if episode_runner is not None else EpisodeRunner(
+            target, logger, max_turns=14, loop_detection=loop_detection)
         self.prefix_runner = SharedPrefixRunner(target, continuation_turns=continuation_turns)
 
         # Updaters (initialized lazily based on method)
@@ -107,12 +121,13 @@ class TrainingLoop:
             self._updater = GFlowNetUpdater(self.auditor)
         return self._updater
 
-    def train(self, num_steps: int = 1000, callback: Any = None) -> list[dict[str, Any]]:
+    def train(self, num_steps: int = 1000, callback: Any = None, start_step: int = 0) -> list[dict[str, Any]]:
         """Run the full training loop.
 
         Args:
-            num_steps: total training steps
+            num_steps: total training steps to run from start_step
             callback: optional function(step, metrics) called each step
+            start_step: step index to start from (for resuming)
 
         Returns:
             list of per-step metric dicts
@@ -121,7 +136,7 @@ class TrainingLoop:
         updater = self._get_updater()
         tlog = self.training_logger
 
-        for step in range(num_steps):
+        for step in range(start_step, start_step + num_steps):
             if tlog:
                 tlog.begin_step(step)
 

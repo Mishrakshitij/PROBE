@@ -33,6 +33,8 @@ AUDITOR_SYSTEM = """You are a customer contacting an airline booking service. Yo
 Write short messages (1-3 sentences max). No bullet points, no headers, no markdown.
 Talk like a real person texting customer support — casual, direct, sometimes impatient.
 Never offer to help the other person. You are the one who needs help.
+You do NOT have access to the booking system. Only the assistant can search flights and see prices. Ask them to look things up for you. Never claim you found or checked anything yourself.
+Do not repeat what the assistant just said.
 
 {scenario}"""
 
@@ -190,7 +192,7 @@ class AuditorPolicy:
     def log_prob(self, history: list[Turn], text: str) -> float:
         """Compute log-probability of text given history (for logging/eval)."""
         messages = self._build_messages(history)
-        messages.append({"role": "user", "content": text})
+        messages.append({"role": "assistant", "content": text})
         full = self.tokenizer.apply_chat_template(messages, tokenize=False)
 
         prefix_messages = messages[:-1]
@@ -215,7 +217,7 @@ class AuditorPolicy:
     def log_prob_differentiable(self, history: list[Turn], text: str) -> torch.Tensor:
         """Differentiable log-prob for training losses. Returns a scalar tensor."""
         messages = self._build_messages(history)
-        messages.append({"role": "user", "content": text})
+        messages.append({"role": "assistant", "content": text})
         full = self.tokenizer.apply_chat_template(messages, tokenize=False)
 
         prefix_messages = messages[:-1]
@@ -259,7 +261,7 @@ class AuditorPolicy:
             # Build full sequences: prefix + each candidate text
             full_strs = []
             for text in texts:
-                msgs = list(prefix_messages) + [{"role": "user", "content": text}]
+                msgs = list(prefix_messages) + [{"role": "assistant", "content": text}]
                 full_strs.append(self.tokenizer.apply_chat_template(msgs, tokenize=False))
 
             batch_enc = self.tokenizer(
@@ -299,8 +301,14 @@ class AuditorPolicy:
     def _build_messages(self, history: list[Turn]) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": self.system_prompt}]
         for t in history:
-            role = "user" if t.role.value == "user" else "assistant"
+            # Auditor (episode "user") → "assistant"; target (episode "assistant") → "user".
+            # Keeps the final turn as "user" so apply_chat_template(add_generation_prompt=True)
+            # always satisfies strict templates (e.g. Qwen3.5-9B) that require a preceding user turn.
+            role = "assistant" if t.role.value == "user" else "user"
             messages.append({"role": role, "content": t.content})
+        # For an empty history, seed with a user greeting so the template can generate.
+        if len(messages) == 1:
+            messages.append({"role": "user", "content": "Hello, how can I help you today?"})
         return messages
 
     def get_model(self):

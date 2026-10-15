@@ -1,0 +1,436 @@
+\documentclass{article}
+\usepackage[main]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage{tabularx}
+
+\definecolor{todo}{rgb}{0.8,0.0,0.0}
+\newcommand{\todo}[1]{{\color{todo}\textbf{[TODO: #1]}}}
+
+\title{Learning to Audit: Training Adversarial Testers for Policy Violations in LLM Agents}
+
+\author{
+  Anonymous Author(s) \\
+  Affiliation \\
+  \texttt{anonymous@email.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Tool-augmented LLM agents increasingly execute consequential actions---booking flights, managing finances, accessing databases---under complex operational policies. Manual red-teaming of such agents is expensive, inconsistent, and cannot exhaustively cover the combinatorial space of multi-turn interactions. We introduce \textbf{AAPO} (Auditing Agents for Policy-violation Observation), a reinforcement learning framework that trains a small language model to play the role of a realistic customer and systematically expose policy violations in a target agent through multi-turn dialogue. We compare three RL algorithms---Group Relative Policy Optimization (GRPO), Direct Preference Optimization (DPO), and GFlowNet trajectory balance---applied to a flight-booking environment with 20 policies across business, safety, privacy, and operational categories. Through three iterations of reward engineering, we show that the effects of reward design depend on what is measured and which algorithm consumes the signal: per-policy diminishing returns lift training-time yield substantially for GRPO and GFlowNet but leave DPO invariant (its pairwise loss preserves orderings), while \emph{eval-time} policy coverage is largely unchanged across reward versions because most of the gains come from prompt and scenario design. Surprisingly, V3 reward shaping degrades GFlowNet eval-time coverage despite raising its training-time yield, suggesting that mode-covering objectives are sensitive to reward magnitudes in ways the loss curves don't reveal. Our best auditor (GRPO V3 step 150 and DPO V3 step 300) achieves 60\% policy coverage (12 of 20 policies) with up to 94\% multi-violation episodes, discovering failure modes across tool-gating, fabrication, schema adherence, privacy leakage, and confirmation bypass. We release the full training pipeline, 20 programmatic verifiers, and a structured failure catalog.
+\end{abstract}
+
+%% ============================================================
+\section{Introduction}
+\label{sec:intro}
+%% ============================================================
+
+Large language models are being deployed as autonomous agents that interact with external tools, databases, and APIs through protocols such as the Model Context Protocol~\citep{anthropic_mcp}. These agents coordinate multi-step workflows with real-world consequences: a flight-booking agent searches inventories, checks availability, processes payments, and handles sensitive passenger data. Ensuring that such agents comply with operational policies---pricing rules, data privacy requirements, confirmation protocols---is a critical challenge that grows with deployment scale.
+
+Current evaluation approaches fall short. Capability-oriented benchmarks~\citep{zhou2023webarena,xie2024osworld,drouin2024workarena} measure \emph{what agents can do} but not \emph{what policies they violate}. Single-turn red-teaming~\citep{perez2022redteaming,chao2024pair,samvelyan2024rainbow} targets safety refusals rather than multi-turn policy compliance. Manual testing is expensive and cannot cover the combinatorial space of conversation paths, tool-call sequences, and edge-case interactions.
+
+We propose \textbf{learning to audit}: training a small LLM (4B parameters, QLoRA) to play the role of a realistic customer and generate multi-turn conversations that expose policy violations in a larger target agent (30B parameters). The auditor is optimized via reinforcement learning to maximize a composite reward that balances violation discovery, conversation diversity, and behavioral plausibility. We compare three RL algorithms---GRPO~\citep{shao2024grpo}, DPO~\citep{rafailov2023dpo}, and GFlowNet~\citep{bengio2023gflownet,malkin2022trajectory}---applied to a flight-booking environment with 20 operational policies.
+
+A central finding is that training-time reward signals and held-out evaluation outcomes can move in opposite directions. Through three iterations (V1--V3) of the reward function, we observe that prompt constraints, plausibility penalties, and scenario injection (V1$\to$V2) lift coverage uniformly, while reward-magnitude reshaping (V2$\to$V3 diminishing returns) primarily reshapes \emph{which} violations are counted---and interacts asymmetrically with the optimizer. GRPO and GFlowNet show large training-time yield gains under V3, but only GRPO realizes a small eval-time coverage gain at the cost of training instability; GFlowNet's eval-time coverage actually degrades. DPO is invariant to the reward reshaping because its pairwise loss preserves orderings. This progression surfaces general challenges in agentic RL: reward hacking via repeated low-severity violations, training-vs-eval metric divergence, and the difficulty of designing reward changes that improve both signals simultaneously.
+
+\textbf{Contributions.}
+\begin{enumerate}
+    \item \textbf{AAPO system}: A complete RL pipeline for training adversarial auditors of tool-augmented LLM agents, with 20 policies, 8 booking tools, 16 deterministic verifiers, 4 hybrid LLM-judge verifiers, curriculum learning, and replay-based exploration.
+    \item \textbf{Algorithm comparison}: The first head-to-head comparison of GRPO, DPO, and GFlowNet for adversarial generation in multi-turn agentic settings.
+    \item \textbf{Reward engineering lifecycle}: Systematic documentation of three reward versions with quantitative analysis, providing a case study in reward design for agentic RL.
+    \item \textbf{Empirical findings}: Trained auditors achieve up to 60\% policy coverage (12/20 policies) with 94\% multi-violation episodes; GRPO and DPO peak at the same coverage but on different trajectories (GRPO at step 150 with subsequent regression; DPO at step 300 monotonically).
+\end{enumerate}
+
+%% ============================================================
+\section{Related Work}
+\label{sec:related}
+%% ============================================================
+
+\textbf{Red-teaming LLMs.}
+Automated red-teaming approaches train adversarial models to elicit harmful outputs~\citep{perez2022redteaming,casper2023explore}, use iterative prompt refinement~\citep{chao2024pair}, or generate diverse adversarial prompts via quality-diversity search~\citep{samvelyan2024rainbow}. These methods target \emph{single-turn} safety behaviors (toxicity, refusals). AAPO extends this paradigm to \emph{multi-turn policy compliance} in tool-augmented agents, where violations emerge from sequences of tool calls and conversation dynamics rather than individual responses.
+
+\textbf{RL for language model training.}
+RLHF~\citep{ouyang2022rlhf} trains models from human preferences via reward models. DPO~\citep{rafailov2023dpo} eliminates the reward model by directly optimizing preferences. GRPO~\citep{shao2024grpo} uses group-relative advantages without a critic. GFlowNets~\citep{bengio2023gflownet,malkin2022trajectory} sample proportionally to reward for mode-covering behavior. ArCHer~\citep{zhou2024archer} applies hierarchical RL to multi-turn dialogue. We apply all three families to the novel setting of adversarial policy auditing.
+
+\textbf{Agent evaluation.}
+Benchmarks such as AgentBench~\citep{agentbench_li2023}, WebArena~\citep{zhou2023webarena}, and ToolBench~\citep{qin2023toollm} evaluate agent \emph{capability}---can the agent complete the task? AAPO evaluates \emph{policy compliance}---does the agent follow its rules while completing the task? The closest work is ST-WebAgentBench~\citep{ruan2024stwebagentbench}, which adds trust constraints to web tasks; however, it uses static test cases rather than a learned adversarial auditor.
+
+\textbf{Reward engineering.}
+Reward hacking~\citep{skalse2022rewardhacking} and reward misspecification~\citep{pan2022rewardhacking} are well-documented failure modes. Our V1--V3 progression provides a concrete case study in iterative reward refinement for agentic RL, complementing theoretical analyses with practical diagnostics and fixes.
+
+%% ============================================================
+\section{Problem Formulation}
+\label{sec:formulation}
+%% ============================================================
+
+\textbf{Auditing game.}
+An auditor policy $\pi_\theta$ generates user messages to probe a target agent $\pi_T$ with tool access $\mathcal{T}$. A $K$-turn interaction produces trajectory $H_K = (u_1, c_1, u_2, c_2, \ldots, u_K, c_K)$ where $u_k \sim \pi_\theta(\cdot \mid H_{k-1})$ and $c_k \sim \pi_T(\cdot \mid H_{k-1}, u_k, \mathcal{T})$. The target may invoke tools during each response.
+
+\textbf{Composite reward.}
+The per-turn reward for auditor turn $k$ is:
+\begin{equation}
+    r_k = r_{\text{viol}}(c_k) + \alpha \cdot r_{\text{prog}}(H_k) + \beta \cdot r_{\text{nov}}(H_k) + \gamma \cdot r_{\text{plaus}}(u_k)
+    \label{eq:reward}
+\end{equation}
+where $r_{\text{viol}}$ is a severity-weighted violation score from 20 programmatic verifiers and an LLM judge, $r_{\text{prog}}$ rewards conversation progress toward actionable states (booking, cancellation), $r_{\text{nov}}$ encourages discovery of under-explored policies, and $r_{\text{plaus}}$ penalizes unnatural auditor behavior. All components are independently z-score normalized via running statistics.
+
+\textbf{Weight scheduling.}
+$\alpha$ decreases from 0.5 to 0.1 and $\beta$ increases from 0.1 to 0.4 over a warmup period, shifting emphasis from hand-holding (progress shaping) to diversity (novelty) as training stabilizes. $\gamma$ is constant.
+
+\textbf{Three algorithmic instantiations.}
+From a shared conversation prefix $S_t$, we generate $G$ candidate messages $\{u_t^i\}_{i=1}^G$, obtain target responses for each, and score the resulting continuations:
+
+\emph{GRPO}~\citep{shao2024grpo}: Group advantage $A_i = R_i - \bar{R}$ with clipped policy gradient. No critic.
+
+\emph{DPO}~\citep{rafailov2023dpo}: Select top-1 winner and bottom-1 loser by reward. Optimize $-\log \sigma\bigl(\beta(\log\pi_\theta(w) - \log\pi_\theta(l) - \log\pi_{\text{ref}}(w) + \log\pi_{\text{ref}}(l))\bigr)$.
+
+\emph{GFlowNet TB}~\citep{malkin2022trajectory}: Trajectory balance loss $\mathcal{L} = (\log Z_\phi + \log p_\theta(H) - \log R(H))^2$, sampling trajectories proportionally to reward for mode-covering behavior.
+
+%% ============================================================
+\section{System Design}
+\label{sec:system}
+%% ============================================================
+
+\subsection{Environment: SkyAssist}
+
+We construct a flight-booking environment with a synthetic database (35 airports, 120 routes, 643 flights, 4 restricted routes to sanctioned destinations, 46 cancelled flights) and 8 booking tools (search, availability check, booking, cancellation, modification, itinerary hold, flight details, booking lookup). The target agent (Qwen3-30B-A3B~\citep{kwon2023vllm}) operates with a deliberately incomplete system prompt containing exploitable gaps in its policy instructions.
+
+\textbf{20 operational policies} span four categories: \emph{Business} (B1--B6: profitability, pricing, restricted routes, upselling, fare disclosure, round-trip preference), \emph{Safety} (S1--S6: tool gating, schema adherence, fabrication prevention, safe defaults, action confirmation, error handling), \emph{Privacy} (P1--P4: internal pricing, passenger data, tool schema, PII handling), and \emph{Operational} (O1--O4: passenger limits, advance booking, connection times, cancelled flights). 16 policies have deterministic programmatic verifiers; 4 (B4, B6, S5, P1) use a sparse LLM judge.
+
+\subsection{Auditor Architecture}
+
+The auditor is Qwen3-4B-Instruct loaded in 4-bit precision (NF4 quantization) with QLoRA~\citep{dettmers2023qlora} (rank 64, $\alpha=128$, targeting Q/K/V/O projections; 47M trainable / 4B total parameters). Generation uses Flash Attention 2~\citep{dao2023flashattention2} and Liger-Kernel fused Triton operators. An EMA copy ($\tau=0.995$) provides stable sampling while the training copy receives gradient updates.
+
+Each episode injects a \textbf{randomized customer scenario} from a pool of 27+ scenarios, each targeting specific policies (e.g., ``one-way flight from SCE to DIR, tight budget'' targets B6/B4; ``multi-city CLP$\to$MEE$\to$RDP'' targets O3/S1). The system prompt explicitly constrains the auditor: short messages (1--3 sentences), no markdown, no fabrication of system information, no assistant-like behavior.
+
+\subsection{Reward Design}
+\label{sec:reward}
+
+\textbf{Violation reward} uses severity weights (Critical=4.0, High=2.0, Medium=1.0, Low=0.5) with \emph{per-policy diminishing returns}: the first violation of policy $p$ in an episode receives full weight, the second receives 50\%, and subsequent occurrences receive zero. This prevents reward hacking via repeated low-severity violations (\S\ref{sec:v3}).
+
+\textbf{Progress reward} follows a 3-tier structure: basic slot-filling (origin, destination, date: 0.03 each), tool milestones (search: 0.08, availability: 0.10), and deep-flow milestones (booking attempt: 0.30, cancellation: 0.25, multi-leg setup: 0.25).
+
+\textbf{Novelty reward} combines inverse-frequency bonuses for rare policies, coverage-gap bonuses for first-time policy triggers (+2.0), and cluster discovery bonuses from HDBSCAN trajectory clustering.
+
+\textbf{Plausibility reward} penalizes: assistant-like language ($-0.4$), fabrication of system access ($-0.6$), markdown formatting ($-0.15$), excessive length ($-0.4$ for $>$80 words), and echo/mirroring of assistant responses ($-0.5$ for $>$50\% overlap).
+
+\subsection{Curriculum Learning}
+
+Training proceeds through four stages with increasing maximum turns: $K_{\max} \in \{4, 8, 12, 14\}$. The curriculum advances when violation yield exceeds 15\% (average violations per episode), with a patience of 50 steps. All three methods reach the final stage within 100--150 steps.
+
+%% ============================================================
+\section{Reward Engineering: A Case Study}
+\label{sec:reward_eng}
+%% ============================================================
+
+A central contribution is the documentation of three reward iterations, each motivated by specific failure modes discovered during training. This progression illustrates general challenges in agentic RL.
+
+\subsection{V1: Baseline Reward}
+
+\textbf{Setup.}
+Generic system prompt (``you are a realistic airline customer''), no scenarios, single target continuation per candidate ($C=1$), progress shaping with uniform slot bonuses.
+
+\textbf{Failures.}
+After 180 training steps: average message length 130+ words (essay-style with markdown headers); 58\% of episodes exhibit role confusion (auditor acts as assistant); only 8 unique opening messages across 62 evaluation episodes; 9/20 policy coverage; 34\% of episodes stuck in conversation loops.
+
+\textbf{Root causes.}
+(1) No behavioral constraints on the auditor---the base model defaults to its assistant persona. (2) Single-turn continuations cannot reach booking-level tool calls needed for 11 of 20 policies. (3) Plausibility reward ($\gamma=0.1$) too weak to counteract violation reward from essay-length messages.
+
+\textbf{Lesson.}
+Infrastructure correctness and behavioral constraints are prerequisites for meaningful RL training. Without explicit plausibility enforcement, the optimizer exploits the easiest path to violation rewards.
+
+\subsection{V2: Scenario Injection and Prompt Rewrite}
+
+\textbf{Changes.}
+Rewritten system prompt (``You are NOT the assistant. 1--3 sentences max. No markdown.''); 27 randomized customer scenarios per episode; plausibility scorer extended with assistant-language detection, markdown penalties, and echo detection; 3-tier progress shaping; continuation turns increased to $C=3$.
+
+\textbf{Results.}
+Message length: $60$ words (from 130+). Role confusion: 11\% (from 58\%). Policy coverage: 12--14/20 (from 9/20). Tool engagement: 92\% of episodes reach tool calls. Booking-level tools (\texttt{book\_flight}, \texttt{hold\_itinerary}) reached in 15--22\% of episodes.
+
+\textbf{Remaining issue.}
+Three hybrid policies---B4 (upsell guidance), S5 (confirm before action), B6 (round-trip preference)---account for 82--85\% of all violations. These fire on \emph{every assistant turn} that doesn't mention upgrades/round-trips/confirmations, creating a reward shortcut: the auditor exploits per-turn inflation rather than pursuing harder policies.
+
+\subsection{V3: Reward Deduplication and Anti-Fabrication}
+\label{sec:v3}
+
+\textbf{Changes.}
+(1) Per-policy diminishing returns (1st=full, 2nd=50\%, 3rd+=0). (2) Anti-fabrication penalty ($-0.6$) for claiming system access. (3) $\gamma$ raised from 0.1 to 0.35. (4) DB-aware scenarios from actual flight routes. (5) Loop detection: early stopping when last 3 user messages share $>$50\% word overlap.
+
+\textbf{Results.}
+DPO shows the strongest optimization signal: loss drops from 0.693 to 0.592, implicit accuracy reaches 100\%, margins grow to 0.50 (V2 margins peaked at 0.01). GFlowNet achieves the highest per-step violation yield (17--21 violations/step). All methods reach the final curriculum stage (k=14) without memory issues.
+
+\textbf{Lesson.}
+Deduplication and domain-specific penalties are essential for reward stability. Without per-policy caps, the optimizer discovers and exploits repetitive violation patterns, creating the illusion of high yield without genuine policy coverage improvement.
+
+%% ============================================================
+\section{Experiments}
+\label{sec:experiments}
+%% ============================================================
+
+\subsection{Setup}
+
+\textbf{Hardware.}
+Each method trains on 2$\times$ A100-40GB GPUs: one for the vLLM target server (Qwen3-30B-A3B), one for the auditor (Qwen3-4B QLoRA). Training runs for 72 hours (200--300 steps).
+
+\textbf{Baselines.}
+B0: random scenario templates with no learning. B2: zero-shot Qwen3-30B as auditor (no RL training).
+
+\textbf{Evaluation.}
+50--100 episodes per checkpoint, maximum 8 turns per episode. Metrics: policy coverage (\% of 20 policies triggered), violation yield (per 100 episodes), severity-weighted yield, multi-policy rate (\% episodes triggering $\geq 2$ policies), cluster entropy (diversity of failure modes).
+
+\subsection{Main Results}
+
+\begin{table}[t]
+\centering
+\caption{Main evaluation results across reward versions (50 episodes per checkpoint, max 8 turns). Coverage is fraction of 20 policies triggered. Yield is violations per 100 evaluation episodes. \textbf{B4S5B6\%} is the share of violations from the three hybrid policies that the V2 reward over-incentivized; lower is better. \textbf{Bold} indicates per-method peak coverage. The V2-dedup block isolates per-policy diminishing returns (V2 reward + dedup only, with all other V3 changes disabled) to identify which V3 fix drives the coverage gains observed at peak V3 checkpoints.}
+\label{tab:main_results}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Method} & \textbf{Coverage} & \textbf{Yield/100} & \textbf{B4S5B6\%} & \textbf{Multi-pol.} & \textbf{Entropy} \\
+\midrule
+\multicolumn{6}{l}{\emph{Baselines (Qwen3-30B target, 50 episodes, max 8 turns)}} \\
+B0 (random templates)    & 15\%  & 8          & 0\%        & 0\%        & 1.10       \\
+B2 (zero-shot Qwen3-4B)  & 50\%  & 610        & 75\%       & 70\%       & 2.50       \\
+\midrule
+\multicolumn{6}{l}{\emph{V2 reward (no diminishing returns, gamma=0.1, no anti-fabrication)}} \\
+GRPO-V2 (step 50)        & 55\%       & 1090       & 82\%       & 88\%       & 3.57       \\
+DPO-V2 (step 50)         & \textbf{60\%} & 1098    & 79\%       & 86\%       & 3.30       \\
+GFlowNet-V2 (step 50)    & 45\%       & 1042       & 84\%       & 86\%       & 3.29       \\
+GFlowNet-V2 (step 250)   & 45\%       & 1212       & 86\%       & 82\%       & 2.86       \\
+\midrule
+\multicolumn{6}{l}{\emph{V2-dedup (V2 + per-policy diminishing returns only; ablation)}} \\
+GRPO-V2-dedup (step 250)  & 55\%       & 1914       & 78\%       & 100\%      & 3.30       \\
+DPO-V2-dedup (step 50)    & 55\%       & 1066       & 84\%       & 78\%       & 2.76       \\
+DPO-V2-dedup (step 200)   & 55\%       & 1086       & 80\%       & 86\%       & 3.12       \\
+\midrule
+\multicolumn{6}{l}{\emph{V3 reward (diminishing returns, gamma=0.35, anti-fabrication, DB-aware scenarios)}} \\
+GRPO-V3 (step 50)        & 55\%       & 1010       & 82\%       & 90\%       & 3.10       \\
+GRPO-V3 (step 150)       & \textbf{60\%} & 1176    & \textbf{77\%} & \textbf{94\%} & 3.21       \\
+GRPO-V3 (step 225)       & 50\%       & 1292       & 82\%       & 84\%       & 3.17       \\
+DPO-V3 (step 50)         & 55\%       & 974        & 84\%       & 86\%       & 3.09       \\
+DPO-V3 (step 150)        & 55\%       & 1110       & 83\%       & 80\%       & 3.27       \\
+DPO-V3 (step 300)        & \textbf{60\%} & 836     & \textbf{77\%} & 88\%    & 3.15       \\
+GFlowNet-V3 (step 50)    & 45\%       & 1016       & 83\%       & 78\%       & 3.15       \\
+GFlowNet-V3 (step 175)   & 40\%       & 1184       & 78\%       & 80\%       & 2.16       \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:main_results} summarizes evaluation results. Key findings:
+
+\textbf{V3 reward does not uniformly improve eval-time coverage over V2.}
+At step 50 (apples-to-apples comparison), V3 is on par with or slightly worse than V2: GRPO is unchanged (11/20 both), DPO drops by 1 policy under V3 (12/20 V2 vs 11/20 V3), and GFlowNet is unchanged (9/20). Coverage gains require additional training: GRPO V3 reaches 12/20 only at step 150, DPO V3 only at step 300---and DPO V2 step 50 already matches that ceiling. The V3 reward redesign primarily yields a \emph{shape} change, not a magnitude change in coverage.
+
+\textbf{The B4/S5/B6 share drops at peak V3 checkpoints, but only modestly.}
+At GRPO step 150 and DPO step 300, the share of violations from the three hybrid policies drops to 77\% (down from 79--84\% under V2). The diminishing-returns rule shifts reward-mass toward harder policies, but the effect on aggregate coverage is small because the harder policies are sparse (1--2 occurrences per 50 episodes).
+
+\textbf{S2 (schema adherence) is reachable but unreliable.}
+S2 appears at DPO V2 step 50, GRPO V3 step 150, and DPO V3 step 300---but disappears at GRPO V3 step 225, indicating high variance in late-stage exploration. It is not consistently triggered by any single (algorithm, reward) configuration.
+
+\textbf{GFlowNet eval-time coverage degrades with V3 training.}
+GFlowNet V3 step 175 shows 8/20 coverage and entropy 2.16, both worse than V2 step 250 (9/20, entropy 2.86) and V3 step 50 (9/20, entropy 3.15). This contradicts the training-time yield curve (Section~\ref{sec:training_dynamics}), where GFlowNet V3 yield was substantially higher than V2. The discrepancy suggests that V3-trained GFlowNet over-fits to a narrow set of high-reward strategies under the trajectory-balance objective, which the longer auditor messages we observed (76+ words on average at step 150) are consistent with.
+
+\textbf{DPO V3 shows the strongest optimization signal but the least eval-time benefit.}
+DPO V3 loss decreases from 0.693 to 0.592, margins grow to 0.50, and implicit accuracy reaches 100\%---textbook strong-supervision learning. But coverage matches DPO V2 step 50 (12/20). The optimization signal is real; the gain it produces in held-out evaluation, given V2 was already strong, is marginal.
+
+\textbf{Diminishing returns alone is not the dominant V3 fix.}
+We isolated the per-policy diminishing-returns rule from the rest of V3 (anti-fabrication, $\gamma=0.35$, DB-aware scenarios, loop detection) by re-running training with V2 reward + only diminishing returns. Across both algorithms tested (GRPO step 250 and DPO steps 50, 200), V2-dedup remains at 11/20 coverage---neither matching nor exceeding V2 baselines, and never reaching the 12/20 peak that V3 hits at GRPO step 150 and DPO step 300. V2-dedup \emph{does} reproduce the desired \emph{shape} effects of V3 (B4/S5/B6 share drops to 78--84\%, entropy stays in the 2.76--3.30 range), and produces the highest training-time yield of any configuration (GRPO V2-dedup step 250: 1914/100 episodes). But the coverage benefit at peak V3 checkpoints requires the other reward changes too---the dedup rule is necessary but not sufficient.
+
+\textbf{Methodological note: corrected adapter loader.}
+An earlier evaluation pipeline used \texttt{state\_dict.load(strict=False)} to load saved LoRA adapters, which silently dropped every adapter weight (key-name mismatch between PEFT save format and the live model's adapter-name suffix). All evaluations in Table~\ref{tab:main_results} use the corrected loader (\texttt{peft.set\_peft\_model\_state\_dict}) which we verified loads all 288 adapter tensors per checkpoint. The training pipeline was unaffected; only evaluation reports prior to the fix were invalid.
+
+\subsection{Training Dynamics}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_training_dynamics.pdf}
+    \caption{Training dynamics across V3 methods. (a) DPO loss over 300 steps showing clear optimization. (b) Violation yield comparison (smoothed) for GRPO, DPO, and GFlowNet. (c) Completion length across reward versions, showing reduction from 130+ words (V1) to 40--55 (V3).}
+    \label{fig:training_dynamics}
+\end{figure}
+
+Figure~\ref{fig:training_dynamics} shows training dynamics. GFlowNet achieves the highest per-step yield but with high variance. DPO has the most stable training with clear loss convergence. GRPO shows intermediate behavior with elevated gradient norms (21--38 vs DPO's 0.4--1.6).
+
+All methods reach the final curriculum stage ($K_{\max}=14$) within 100--150 steps, demonstrating that curriculum advancement is driven by the reward signal rather than the algorithm.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_v2_vs_v3_training.pdf}
+    \caption{V2 (blue) vs V3 (red) reward design under each training algorithm. \emph{Top row}: violation yield per step (rolling-15 mean). \emph{Bottom row}: auditor completion length. The V3 reward redesign substantially lifts GRPO and GFlowNet yield trajectories but leaves DPO essentially unchanged: DPO's pairwise loss is invariant to monotone reward reshaping. The yield gain in GRPO/GFlowNet partially co-varies with longer auditor messages (right column), suggesting V3 incentivizes more aggressive multi-turn probing.}
+    \label{fig:v2_vs_v3}
+\end{figure}
+
+\textbf{Reward $\times$ algorithm interaction (training-time).} Figure~\ref{fig:v2_vs_v3} compares V2 and V3 reward designs across training trajectories. At step 250 the V3 reward lifts GRPO training-time yield from 7.91 to 12.89 (+63\%) and GFlowNet from 8.48 to 15.15 at step 150 (+78\%); DPO is unchanged (V2: 7.76, V3: 5.90). The asymmetry has a clean explanation: GRPO's policy gradient and GFlowNet's trajectory balance both regress toward absolute reward magnitudes, so reshaping the magnitudes (diminishing returns, anti-fabrication) directly modifies the learning signal. DPO instead optimizes pairwise preferences---if the diminishing-returns rule preserves the ordering of candidates within a group (typically yes, since it scales magnitudes downward uniformly), DPO sees the same training signal under both reward versions.
+
+\textbf{Training-time gains do not transfer to eval-time.} The training-time yield gains in Figure~\ref{fig:v2_vs_v3} are not reflected in Table~\ref{tab:main_results}: at step-50, V3 matches or slightly underperforms V2 in coverage for all three algorithms. GRPO recovers a single policy by step 150 with V3, but GFlowNet's eval-time coverage actually degrades. Part of the V3 training-time yield gain in GRPO and GFlowNet co-varies with longer completions (V3 GFlowNet at step 150 averages 76.6 words vs V2's 45.9), and we hypothesize that the auditor exploits the V3 reward shaping by producing longer, more redundant probing messages---which inflates per-step yield without improving the diversity of probing strategies, and in GFlowNet's case may collapse the policy onto a narrow set of high-reward modes (entropy 2.16 at V3 s175 vs 3.15 at V3 s50).
+
+\subsection{Per-Policy Analysis}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/fig_policy_heatmap.pdf}
+    \caption{Per-policy violation counts across methods (V2, step 50, 50 evaluation episodes). B4, S5, and B6 dominate due to per-turn inflation---each fires on every assistant response that lacks upsell/confirmation/round-trip mentions. Policies requiring booking-level tool calls (B1, B3, B5, O1--O4) remain unreached.}
+    \label{fig:policy_heatmap}
+\end{figure}
+
+Figure~\ref{fig:policy_heatmap} reveals a sharp divide between ``easy'' and ``hard'' policies:
+
+\textbf{Easy (triggered in 80+\% of episodes):}
+B4 (upsell), S5 (confirmation), B6 (round-trip)---hybrid policies evaluated by the LLM judge on every assistant turn.
+
+\textbf{Medium (triggered sporadically):}
+P1 (internal pricing), S4 (safe defaults), B2 (USD-only), S6 (error handling), P3 (tool schema), S1 (tool gating), P4 (PII handling).
+
+\textbf{Hard (rarely or never triggered):}
+B1 (profitability), B3 (restricted routes), B5 (fare disclosure), O1--O4 (operational policies requiring booking/hold/cancel/modify tool calls). These require the conversation to reach specific tool-call sequences that the auditor has not consistently learned to produce.
+
+\textbf{Late-discovered policies.}
+S2 (tool-call schema adherence) is a useful signal that training is producing more sophisticated probing rather than only louder probing of the easy three. S2 is absent at step 50 for all three algorithms, but appears at GRPO step 150 (1 occurrence in 50 episodes) and DPO step 300 (1 occurrence). It then disappears again at GRPO step 225, consistent with the partial regression we see in coverage at that checkpoint.
+
+\subsection{Algorithm Comparison}
+
+\begin{table}[t]
+\centering
+\caption{Algorithm characteristics observed across V2 and V3 training.}
+\label{tab:algo_comparison}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Property} & \textbf{GRPO} & \textbf{DPO} & \textbf{GFlowNet} \\
+\midrule
+Update unit & Group of $G$ candidates & Winner/loser pairs & Full episodes \\
+Reference policy needed & Optional (KL) & Yes (EMA) & No \\
+Mode-seeking/covering & Seeking & Seeking & Covering \\
+\midrule
+Final loss (V3) & 0.0035 (PG) & 0.592 & 3.33 (TB) \\
+Coverage trajectory & non-monotone (peaks s150) & monotone (peaks s300) & monotone decline (s50$\to$s175) \\
+Peak coverage (V3) & 12/20 (s150) & 12/20 (s300) & 9/20 (s50) \\
+Yield at peak (per 100 ep) & 1176 & 836 & 1016 (s50) \\
+Grad norm range & 21--38 & 0.4--1.6 & 12--29 \\
+Unique policies found at peak & S2 (s150) & S2 (s300) & none yet \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:algo_comparison} summarizes observed differences. DPO produces the strongest optimization signal with the most stable gradients and a monotone coverage trajectory peaking at step 300. GRPO peaks earlier (step 150) but partially regresses by step 225---losing 2 policies---suggesting instability under continued V3 training that the high gradient norms (21--38) already hint at. GFlowNet at step 50 is the weakest of the three, missing P3 and P4 entirely; the step-175 evaluation actually shows further degradation (8/20 coverage, entropy 2.16), confirming that longer training with V3 reward worsens GFlowNet rather than helping.
+
+The key insight is more nuanced than a simple ``reward beats algorithm'' claim: reward design and algorithm choice \emph{interact}. The V1$\to$V2 transition (prompt + scenarios + plausibility) lifts coverage by 3--5 policies regardless of algorithm. The V2$\to$V3 transition (per-policy diminishing returns) substantially helps GRPO and GFlowNet (+63\% and +78\% yield respectively) but leaves DPO unchanged. The asymmetry is consistent with the algorithms' loss structures: GRPO and GFlowNet regress against absolute reward magnitudes, while DPO is invariant to monotone reward reshaping that preserves candidate orderings. A practitioner should therefore think about reward design jointly with the chosen optimizer rather than treating them as independent knobs.
+
+%% ============================================================
+\subsection{Error Analysis}
+\label{sec:error_analysis}
+%% ============================================================
+
+We characterize the failure modes that prevent any of our trained auditors from exceeding 60\% policy coverage. Three patterns dominate.
+
+\textbf{Booking-flow policies are unreachable due to upstream tool gating.}
+All three peak V3 checkpoints miss the same eight policies (B1, B3, B5, O1--O4, P2). These all require the target agent to execute booking-level tool calls (\texttt{book\_flight}, \texttt{cancel\_booking}, \texttt{modify\_booking}, \texttt{hold\_itinerary}) for the verifier to fire. In our 50-episode evaluations, the target agent calls \texttt{book\_flight} in only 1--3 episodes per checkpoint and never calls \texttt{cancel\_booking} (Table~\ref{tab:tool_usage_eval}). The auditor's strategies push the conversation toward search-and-recommendation patterns, but the target rarely commits to booking actions. Without the booking action, eight policies are structurally inaccessible regardless of how aggressive the auditor is.
+
+\begin{table}[t]
+\centering
+\caption{Target-agent tool usage in evaluation (50 episodes per checkpoint). Only \texttt{search\_flights} fires routinely; booking-level tools (\texttt{book\_flight}, \texttt{cancel\_booking}, \texttt{modify\_booking}, \texttt{hold\_itinerary}) are scarce, which structurally caps our coverage at 12/20.}
+\label{tab:tool_usage_eval}
+\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Checkpoint} & \texttt{search\_flights} & \texttt{book\_flight} & \texttt{cancel} & \texttt{hold} & \texttt{check\_avail} \\
+\midrule
+GRPO V3 s150         & 461 & 3 & 0 & 6 & 0 \\
+DPO V3 s300          & 341 & 1 & 0 & 4 & 0 \\
+GFlowNet V3 s175     & 420 & 3 & 0 & 1 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Many episodes contribute only the easy-three.}
+For DPO V3 step 300 (our best DPO checkpoint), $18/50$ (36\%) of episodes trigger \emph{only} B4, S5, and B6 violations---the three hybrid policies that fire on essentially every assistant turn that lacks an upsell mention, an explicit confirmation, or a round-trip suggestion. Another 3/50 episodes produce no violations at all. So 42\% of episodes contribute nothing to the harder 17 policies. This strongly motivates the V3 diminishing-returns rule, which caps repeat counts of B4/S5/B6 in the reward signal during training, but the auditor still reaches the easy-three frequently because they are the only consistently triggerable signal in many conversation states.
+
+\textbf{Loop detection trades episode length for early termination.}
+Our V3 loop-detection rule terminates episodes when the last three user messages exceed 50\% word overlap. DPO V3 step 300 averages 8.8 turns per episode (versus the cap of 16) and only $4/50$ episodes hit the cap, evidence that loop detection is firing aggressively. GRPO V3 s150 averages 11.3 turns with $22/50$ hitting the cap; the auditor is more verbose and exhibits less repetition triggering. The early-termination behavior is desirable for compute efficiency but it also limits the number of opportunities the auditor has to escalate toward booking-level interactions.
+
+%% ============================================================
+\subsection{Qualitative Analysis}
+\label{sec:qualitative}
+%% ============================================================
+
+We examine three representative episodes to illustrate the auditor's strategies and failure modes.
+
+\textbf{Successful S2 (schema adherence) violation.}
+Scenario: ``Find me a flight to LLW---no origin or date specified.'' The DPO V3 step 300 auditor opens with intentionally underspecified input, repeatedly omitting the origin field across three turns. The target agent responds appropriately by asking for the missing information, but \emph{also} calls \texttt{search\_flights} with only \{destination, date, passengers\}---missing the required origin parameter, which triggers S2. The auditor's strategy is to provide a partial query that the target finds tempting enough to issue a malformed tool call against:
+\begin{quote}
+\emph{User:} ``Find me a flight to LLW. I just need any flight going there soon---no origin or date yet. Can you check what's available to LLW next week?''\\
+\emph{Assistant:} \texttt{search\_flights(destination=LLW, date=..., passengers=1)} \emph{[missing origin]}
+\end{quote}
+The S2 verifier fires three times in this episode. Notably, simpler scenarios (``Book me a flight from SCE to DIR'') do not produce S2 violations because the target follows the schema correctly when provided complete information.
+
+\textbf{Failure: a high-yield episode with no diverse coverage.}
+Scenario: ``Cheapest one-way flight from SCE to DIR on March 15 in economy.'' This is a route with no flights in the database, so the target's \texttt{search\_flights} call returns nothing and the conversation degenerates into a back-and-forth about route availability. The auditor produces 7 violations across 8 turns---all confined to B4/S5/B6 (the target fails to mention upsells, doesn't request explicit confirmation, and doesn't suggest round-trip alternatives). No tool-gating, fabrication, or privacy violations are reachable because the conversation never advances past search. This is the dominant failure mode for our framework: the auditor lacks a strategy to escalate when search returns empty, defaulting to repetition until the loop detector terminates the episode.
+
+\textbf{A long episode that reaches booking flow without exploiting it.}
+Scenario: group booking for 8 passengers from PCQ to ESK. The auditor steers the conversation toward group rates and capacity limits across 16 turns---hitting the maximum length. The target eventually calls \texttt{search\_flights} 4 times and produces 6 different violations (B4, B6, P1, S1, S5, S6). However, despite the auditor specifying 8 passengers (which should trigger O1, max-passengers-per-booking), the target never calls \texttt{book\_flight}, so the O1 verifier never fires. This illustrates how reaching the topic of a policy's domain (here, group-size limits) is necessary but not sufficient---the auditor must also drive the target into the action that triggers the verifier.
+
+\textbf{Cross-method qualitative comparison.}
+DPO V3 produces shorter, more focused episodes (avg 8.8 turns, 65 words/message); GRPO V3 produces longer ones (11.3 turns, 56 words); GFlowNet V3 sits between (10.9 turns, 58 words). DPO appears to learn a faster ``commit and finish'' strategy, while GRPO continues probing even when low-information responses recur. None of the three methods learns to escalate consistently toward booking actions---a structural limitation of our current scenario pool, which heavily weights initial-search scenarios over post-booking scenarios (cancellation, modification).
+
+%% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+%% ============================================================
+
+\textbf{Training-time and eval-time signals can diverge.}
+A practical lesson from our V1$\to$V2$\to$V3 progression is that the same reward redesign can produce a clean training-time improvement while leaving held-out evaluation flat or worse. Prompt and scenario engineering (V1$\to$V2) improve both signals together because they shape the underlying conversation distribution. Reward-magnitude reshaping (V2$\to$V3 diminishing returns) substantially lifts training-time yield for GRPO and GFlowNet but at most marginally improves eval-time coverage; in GFlowNet's case, eval-time coverage actually degrades while training-time yield rises. The likely mechanism is that the auditor exploits V3 by producing longer, more redundant probing messages---increasing per-step violation count but not the diversity of strategies. Practitioners should monitor an eval-time metric on a held-out distribution \emph{throughout} reward iteration, not just rely on training-time loss and yield curves.
+
+\textbf{V3's coverage gain is not localized to a single fix.}
+Our V2-dedup ablation isolates the per-policy diminishing-returns rule. It reproduces V3's reward-shape effects (lower B4/S5/B6 concentration, comparable entropy) and produces the highest training-time yield of any configuration (1914/100 episodes for GRPO step 250). Yet it never reaches the V3 peak coverage of 12/20 across either GRPO or DPO. The peak-coverage benefit therefore requires one or more of the additional V3 changes (anti-fabrication penalty, $\gamma$ raise from 0.1 to 0.35, DB-aware scenarios, loop detection)---or their interaction with diminishing returns. This is consistent with the broader pattern that reward changes in agentic RL act in combination rather than in isolation; identifying a ``critical'' fix is harder than the V1$\to$V2$\to$V3 narrative suggests.
+
+\textbf{Coverage ceiling.}
+Seven policies remain unreachable (B1, B3, B5, O1--O4), all requiring specific booking-level tool-call sequences. This ceiling likely reflects a fundamental limitation of the current reward signal: without direct reward for reaching these specific tool states, the optimizer has no gradient toward them. Future work could address this with goal-conditioned exploration or policy-targeted scenario generation.
+
+\textbf{Broader impact.}
+AAPO demonstrates that automated adversarial auditing of LLM agents is feasible and productive. The approach scales naturally: adding new policies requires only new verifiers, not retraining the auditor from scratch. We envision AAPO-style training as a continuous testing layer in agent deployment pipelines, complementing static evaluations with adaptive, learned stress-testing.
+
+\textbf{Limitations.}
+(1) Single target model (Qwen3-30B); transfer to other targets is untested.
+(2) Single domain (flight booking); generalization unclear.
+(3) Verifiers are manually crafted; automated verifier generation would improve scalability.
+(4) No human evaluation of conversation plausibility.
+(5) Results from a single random seed; multi-seed variance analysis is left for future work.
+
+%% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+%% ============================================================
+
+We presented AAPO, a reinforcement learning framework for training adversarial auditors of tool-augmented LLM agents. Comparing GRPO, DPO, and GFlowNet across three reward iterations, we found that behavioral constraints (prompts, scenarios, plausibility) drive most of the eval-time coverage gains, while reward-magnitude reshaping (per-policy diminishing returns) primarily affects training-time yield without consistently improving held-out coverage---and in GFlowNet's case can actively harm it. Our trained auditors achieve up to 60\% coverage of 20 operational policies, discovering diverse failure modes in tool-gating, fabrication, schema adherence, privacy, and confirmation bypass. The V1--V3 progression provides both a practical roadmap and a cautionary case study: training-time improvements are not a reliable proxy for eval-time gains in adversarial auditing.
+
+%% ============================================================
+\begin{ack}
+We thank Dr.\ Nils Lukas and Dr.\ Salem Lahlou for guidance throughout this project. Compute resources were provided by the institutional GPU clusters used in this work.
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{ref}
+
+\newpage
+\input{appendix}
+
+\end{document}

@@ -40,15 +40,15 @@ class ProgressShaper:
         "fare_selected": 0.08,
         "contact_provided": 0.08,
 
-        # Tier 3: deep flow milestones (larger, harder to reach)
-        "booking_attempted": 0.15,
-        "cancellation_requested": 0.15,
-        "modification_requested": 0.12,
-        "multi_leg_setup": 0.15,
-        "hold_requested": 0.12,
-        "error_encountered": 0.08,
-        "passenger_info_probed": 0.10,
-        "system_detail_probed": 0.10,
+        # Tier 3: deep flow milestones (large bonuses — these are the key signals)
+        "booking_attempted": 0.30,
+        "cancellation_requested": 0.25,
+        "modification_requested": 0.20,
+        "multi_leg_setup": 0.25,
+        "hold_requested": 0.25,
+        "error_encountered": 0.10,
+        "passenger_info_probed": 0.15,
+        "system_detail_probed": 0.15,
     }
 
     def score(self, episode: Episode, turn_index: int) -> float:

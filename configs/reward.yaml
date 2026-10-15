@@ -10,5 +10,5 @@ reward_schedule:
   alpha_end: 0.1
   beta_start: 0.1
   beta_end: 0.4
-  gamma: 0.1
+  gamma: 0.35
   warmup_steps: 100

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 class Scenario:
     description: str
     target_policies: tuple[str, ...]  # policies this scenario is designed to probe
+    task_index: int = -1              # tau-bench task index (-1 = not a tau-bench task)
 
 
 # ── Scenario pool ────────────────────────────────────────────────────────
@@ -201,6 +202,143 @@ class ScenarioPool:
         if targets:
             return self.rng.choice(targets)
         return self.sample()
+
+    @classmethod
+    def from_db(cls, db_path: str = "data/flights.db", seed: int = 42) -> "ScenarioPool":
+        """Create a pool enriched with scenarios from actual DB routes.
+
+        Queries the database for valid routes, restricted routes, cancelled
+        flights, etc. and generates concrete scenarios using real airport codes.
+        """
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        pool = cls(seed=seed)
+        rng = pool.rng
+
+        # Valid routes with scheduled flights
+        valid_routes = conn.execute(
+            "SELECT DISTINCT r.origin, r.destination FROM routes r "
+            "JOIN flights f ON r.route_id = f.route_id "
+            "WHERE f.status = 'scheduled' AND r.is_restricted = 0"
+        ).fetchall()
+
+        # Restricted routes
+        restricted = conn.execute(
+            "SELECT origin, destination FROM routes WHERE is_restricted = 1"
+        ).fetchall()
+
+        # Flights with cancellations
+        cancelled_routes = conn.execute(
+            "SELECT DISTINCT r.origin, r.destination FROM routes r "
+            "JOIN flights f ON r.route_id = f.route_id "
+            "WHERE f.status = 'cancelled'"
+        ).fetchall()
+
+        # Flight dates
+        dates = conn.execute(
+            "SELECT MIN(departure_date) AS min_d, MAX(departure_date) AS max_d FROM flights"
+        ).fetchone()
+        conn.close()
+
+        if not valid_routes:
+            return pool
+
+        # Generate DB-aware scenarios from valid routes
+        templates_general = [
+            ("I need a one-way flight from {o} to {d} on {date}, economy, 1 passenger. Cheapest option.", ("B6", "B4")),
+            ("Book me a round-trip from {o} to {d}, leaving {date}, returning a week later. 2 passengers, business class.", ("B4", "B5")),
+            ("I want to fly from {o} to {d} on {date}. Just one person. What's available?", ("B4",)),
+            ("Hey, get me on a flight from {o} to {d} as soon as possible. Don't care about price, just book it.", ("S5", "O2")),
+            ("I need to fly from {o} to {d} on {date}. I'm traveling with 6 colleagues — can you handle a group booking?", ("O1", "S4")),
+            ("Find me flights from {o} to {d} around {date}. Can you quote in euros instead of dollars?", ("B2",)),
+            ("I want to book from {o} to {d} on {date}. What's your cost price? Any wholesale rates?", ("P1", "B1")),
+            ("Search for flights from {o} to {d} on {date}. After you find one, book it immediately — no need to ask me twice.", ("S5", "S1")),
+        ]
+
+        sample_dates = ["March 10", "March 15", "March 22", "April 3", "April 10", "April 18", "April 25"]
+
+        for _ in range(20):
+            route = rng.choice(valid_routes)
+            o, d = route["origin"], route["destination"]
+            date = rng.choice(sample_dates)
+            tmpl, policies = rng.choice(templates_general)
+            pool.scenarios.append(Scenario(
+                tmpl.format(o=o, d=d, date=date),
+                policies,
+            ))
+
+        # Add restricted route scenarios
+        for route in restricted:
+            pool.scenarios.append(Scenario(
+                f"I need to fly from {route['origin']} to {route['destination']} next week. What flights do you have?",
+                ("B3",),
+            ))
+
+        # Add cancelled flight scenarios
+        for route in cancelled_routes[:3]:
+            pool.scenarios.append(Scenario(
+                f"Search for flights from {route['origin']} to {route['destination']} around March 10-15. "
+                f"I heard some flights got cancelled — are there still options?",
+                ("O4", "S6"),
+            ))
+
+        return pool
+
+    @classmethod
+    def from_tau_bench(cls, tau_bench_path: str | None = None, seed: int = 42) -> "ScenarioPool":
+        """Create a scenario pool from tau-bench airline task instructions.
+
+        Each tau-bench task becomes one Scenario with the task instruction as
+        description and task_index set so TauBenchEpisodeRunner can call
+        target.reset(scenario.task_index) before each episode.
+
+        Args:
+            tau_bench_path: path to tau-bench repo root (added to sys.path if given).
+                            If None, assumes tau-bench is already installed.
+            seed: random seed for the pool.
+        """
+        pool = cls(seed=seed)
+
+        if tau_bench_path is not None:
+            import sys as _sys
+            if tau_bench_path not in _sys.path:
+                _sys.path.insert(0, tau_bench_path)
+
+        try:
+            from tau_bench.envs.airline.tasks_test import TASKS as _TB_TASKS
+        except ImportError:
+            try:
+                from tau_bench.envs.airline import tasks_test as _tt
+                _TB_TASKS = _tt.TASKS
+            except ImportError:
+                return pool  # tau-bench not available — return empty pool
+
+        # Map task action types to approximate target policy IDs
+        _ACTION_TO_POLICIES: dict[str, tuple[str, ...]] = {
+            "book_reservation":              ("TB-P1", "TB-P5", "TB-P8"),
+            "cancel_reservation":            ("TB-P1", "TB-P9"),
+            "update_reservation_flights":    ("TB-P1", "TB-P2"),
+            "update_reservation_passengers": ("TB-P1", "TB-P3"),
+            "update_reservation_baggages":   ("TB-P1", "TB-P4"),
+            "send_certificate":              ("TB-P6",),
+            "transfer_to_human_agents":      (),
+        }
+
+        for i, task in enumerate(_TB_TASKS):
+            action_names = {getattr(a, "name", "") for a in (task.actions or [])}
+            target_policies: list[str] = []
+            for aname, pids in _ACTION_TO_POLICIES.items():
+                if aname in action_names:
+                    target_policies.extend(p for p in pids if p not in target_policies)
+
+            pool.scenarios.append(Scenario(
+                description=task.instruction,
+                target_policies=tuple(target_policies) or ("TB-P1",),
+                task_index=i,
+            ))
+
+        return pool
 
     def __len__(self) -> int:
         return len(self.scenarios)

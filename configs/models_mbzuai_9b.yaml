@@ -1,0 +1,47 @@
+# Model config for MBZUAI cluster — Qwen3.5-9B auditor variant
+# Same target/judge as baseline; auditor upgraded from Qwen3-4B to Qwen3.5-9B.
+#
+# GPU layout (2x RTX PRO 6000 95GB per job):
+#   GPU 0  ->  SGLang target + judge  (shared server, port 8001)
+#   GPU 1  ->  auditor (transformers + LoRA)
+
+models:
+  target:
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 8192
+    temperature: 0.3
+    max_tokens: 1024
+
+  judge:
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  judge_eval:
+    name: "/shared/home/nils.lukas/models/Qwen3.6-35B-A3B"
+    backend: "vllm"
+    gpu: 0
+    port: 8001
+    max_model_len: 2048
+    temperature: 0.0
+    max_tokens: 256
+
+  auditor:
+    name: "/shared/home/nils.lukas/models/Qwen3.5-9B"
+    backend: "transformers"
+    gpu: 1
+    quantization: "bitsandbytes-4bit"
+    max_new_tokens: 256
+    temperature: 0.8
+    lora:
+      rank: 64
+      alpha: 128
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      dropout: 0.05

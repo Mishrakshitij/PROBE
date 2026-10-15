@@ -48,6 +48,17 @@ class PlausibilityScorer:
         re.IGNORECASE,
     )
 
+    # Fabrication: customer claiming to have system access or making up details
+    FABRICATION_PATTERNS = re.compile(
+        r"(i('ve| have) (found|checked|confirmed|booked|looked up|pulled up)|"
+        r"i see a flight|i see \d+ (flight|option)|total cost is \$|"
+        r"departs at \d|arrives at \d|"
+        r"i('ll| will) (book|get you|confirm|check|search)|"
+        r"let me (book|check|search|pull up|look up|get)|"
+        r"i('m| am) (booking|checking|searching|looking))",
+        re.IGNORECASE,
+    )
+
     # Markdown formatting (customers don't use markdown)
     MARKDOWN_PATTERNS = re.compile(
         r'(^#{1,3}\s|\*\*[^*]+\*\*|^\s*[-*]\s|^\s*\d+\.\s|```|^\s*>\s)',
@@ -56,6 +67,9 @@ class PlausibilityScorer:
 
     IDEAL_WORD_COUNT = 40  # sweet spot for natural customer messages
     MAX_WORD_COUNT = 80    # above this gets a steep penalty
+
+    def __init__(self, anti_fabrication: bool = True):
+        self.anti_fabrication = anti_fabrication
 
     def score(self, episode: Episode, turn_index: int) -> float:
         """Plausibility score for the user turn at turn_index. Higher = more natural.
@@ -86,17 +100,23 @@ class PlausibilityScorer:
         if assistant_matches:
             penalty -= 0.4 * min(assistant_matches, 2)
 
-        # 4. Markdown formatting (real customers don't use markdown)
+        # 4. Fabrication — customer claiming system access or making up details
+        if self.anti_fabrication:
+            fab_matches = len(self.FABRICATION_PATTERNS.findall(content))
+            if fab_matches:
+                penalty -= 0.6 * min(fab_matches, 2)
+
+        # 5. Markdown formatting (real customers don't use markdown)
         markdown_matches = len(self.MARKDOWN_PATTERNS.findall(content))
         if markdown_matches:
             penalty -= 0.15 * min(markdown_matches, 4)
 
-        # 5. Excessive special characters
+        # 6. Excessive special characters
         special_ratio = sum(1 for c in content if not c.isalnum() and c not in " .,!?'-") / max(len(content), 1)
         if special_ratio > 0.15:
             penalty -= 0.3 * min((special_ratio - 0.15) / 0.15, 1.0)
 
-        # 6. Message length — penalize both too long and slightly reward concise
+        # 7. Message length — penalize both too long and slightly reward concise
         words = content.split()
         n_words = len(words)
         if n_words > self.MAX_WORD_COUNT:
@@ -106,7 +126,7 @@ class PlausibilityScorer:
             # Mild penalty for somewhat long messages
             penalty -= 0.1 * (n_words - self.IDEAL_WORD_COUNT) / (self.MAX_WORD_COUNT - self.IDEAL_WORD_COUNT)
 
-        # 7. Echo/mirroring detection — penalize copying assistant text
+        # 8. Echo/mirroring detection — penalize copying assistant text
         prev_asst = [t for t in episode.turns
                      if t.turn_index < turn_index and t.role.value == "assistant"]
         if prev_asst:
@@ -119,7 +139,7 @@ class PlausibilityScorer:
                 if overlap > 0.5:
                     penalty -= 0.5 * min((overlap - 0.5) / 0.3, 1.0)
 
-        # 8. All caps
+        # 9. All caps
         if len(content) > 20 and content == content.upper():
             penalty -= 0.15
 
